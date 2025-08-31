@@ -6,6 +6,7 @@
 build/
 DerivedData
 /output
+/depends
 
 ## Various settings
 *.pbxuser
@@ -48,3 +49,6 @@ Documentation/
 Products/
 NMSSHTests/Settings/config.yml
 .DS_Store
+
+# Local signing configuration
+**/Signing-Local.xcconfig

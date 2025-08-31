@@ -48,12 +48,41 @@ if ! nc -z 127.0.0.1 2222 2>/dev/null; then
 fi
 
 # Setup SSH agent for agent tests
+echo "Setting up SSH agent..."
 eval "$(ssh-agent -s)"
-ssh-add ssh-keys/id_rsa 2>/dev/null || echo "SSH agent setup failed (expected for some tests)"
+
+# Add the passwordless SSH key for agent testing
+ssh-add ssh-keys/id_rsa_nopass 2>/dev/null && echo "Added passwordless key to SSH agent"
+
+# Also add the password-protected key for other tests
+if [ -f /tmp/ssh_askpass.sh ]; then
+    rm -f /tmp/ssh_askpass.sh
+fi
+
+cat > /tmp/ssh_askpass.sh << 'EOF'
+#!/bin/bash
+echo "password"
+EOF
+chmod +x /tmp/ssh_askpass.sh
+
+DISPLAY=:0 SSH_ASKPASS=/tmp/ssh_askpass.sh ssh-add ssh-keys/id_rsa 2>/dev/null && echo "Added password-protected key to SSH agent"
+rm -f /tmp/ssh_askpass.sh
+
+# Export SSH agent variables for the test process
+export SSH_AUTH_SOCK
+export SSH_AGENT_PID
+
+# Verify SSH agent has the keys
+ssh-add -l && echo "SSH agent configured with keys" || echo "SSH agent setup incomplete"
 
 # Run tests with timeout
 echo "Running NMSSH tests with 120s timeout..."
 cd ..
+
+# Export SSH agent environment for xcodebuild
+export SSH_AUTH_SOCK
+export SSH_AGENT_PID
+
 xcodebuild test -project NMSSH.xcodeproj -scheme NMSSH -destination 'platform=macOS,arch=x86_64' &
 TEST_PID=$!
 

@@ -13,7 +13,7 @@ StrictModes yes
 
 RSAAuthentication yes
 PubkeyAuthentication yes
-AuthorizedKeysFile /config/.ssh/authorized_keys
+AuthorizedKeysFile .ssh/authorized_keys
 
 PasswordAuthentication yes
 PermitEmptyPasswords no

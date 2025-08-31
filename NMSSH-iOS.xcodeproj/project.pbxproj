@@ -243,7 +243,7 @@
 				18A096CF17D6AA7B008B76FB /* lib */,
 			);
 			name = Libraries;
-			path = "NMSSH-iOS/Libraries";
+			path = "NMSSH/Libraries";
 			sourceTree = SOURCE_ROOT;
 		};
 		18A0967E17D6AA7B008B76FB /* include */ = {
