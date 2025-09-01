@@ -5,12 +5,40 @@ NMSSH is a clean, easy-to-use, unit tested framework for iOS and OSX that wraps 
 ## Test Status
 
 The test suite has been updated and fixed for compatibility with modern SSH servers:
-- **56/56 tests passing** (100% success rate)
+- **57/57 tests passing** (100% success rate)
 - SSH handshake compatibility issues resolved
-- Public key authentication working
+- Public key authentication working (including new callback-based authentication)
 - Password authentication working
 - SFTP operations working
 - SCP operations working
+
+## New Features
+
+### Custom Public Key Signing
+
+NMSSH now supports custom signing implementations through the new `authenticateByInMemoryPublicKey:signCallback:` method. This allows integration with:
+
+- Hardware Security Modules (HSMs)
+- Smart cards
+- Secure enclaves
+- Custom cryptographic libraries
+- Remote signing services
+
+```objc
+// Example usage with custom signing
+int(^signCallback)(NSData *, NSData **) = ^int(NSData *data, NSData **signature) {
+    // Your custom signing implementation
+    NSData *signedData = [YourCryptoLibrary signData:data withPrivateKey:yourKey];
+    if (signedData) {
+        *signature = signedData;
+        return 0; // Success
+    }
+    return -1; // Failure
+};
+
+BOOL authenticated = [session authenticateByInMemoryPublicKey:publicKeyData
+                                                 signCallback:signCallback];
+```
 
 ## Questions & Issues
 

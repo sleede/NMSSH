@@ -4,6 +4,8 @@
 #import "ConfigHelper.h"
 
 #import <NMSSH/NMSSH.h>
+#import <CommonCrypto/CommonCrypto.h>
+#import <Security/Security.h>
 
 @interface NMSSHSessionTests () {
     NSDictionary *validPasswordProtectedServer;
@@ -304,6 +306,94 @@
                           @"Port from config not used");
     XCTAssertEqualObjects(session.username, @"configUser",
                           @"User from config not used");
+}
+
+- (NSData *)convertPEMToDER:(NSData *)pemData {
+    NSString *pemString = [[NSString alloc] initWithData:pemData encoding:NSUTF8StringEncoding];
+    if (!pemString) return nil;
+    
+    // Remove PEM headers and footers
+    NSString *base64String = [pemString stringByReplacingOccurrencesOfString:@"-----BEGIN RSA PRIVATE KEY-----" withString:@""];
+    base64String = [base64String stringByReplacingOccurrencesOfString:@"-----END RSA PRIVATE KEY-----" withString:@""];
+    base64String = [base64String stringByReplacingOccurrencesOfString:@"-----BEGIN PRIVATE KEY-----" withString:@""];
+    base64String = [base64String stringByReplacingOccurrencesOfString:@"-----END PRIVATE KEY-----" withString:@""];
+    base64String = [base64String stringByReplacingOccurrencesOfString:@"\n" withString:@""];
+    base64String = [base64String stringByReplacingOccurrencesOfString:@"\r" withString:@""];
+    base64String = [base64String stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    
+    return [[NSData alloc] initWithBase64EncodedString:base64String options:0];
+}
+
+- (void)testPublicKeyAuthenticationWithSignCallbackWorks {
+    NSString *host = [validPublicKeyProtectedServer objectForKey:@"host"];
+    NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
+    NSString *publicKeyPath = [validPublicKeyProtectedServer objectForKey:@"valid_public_key"];
+    NSString *privateKeyPath = [publicKeyPath stringByDeletingPathExtension];
+    
+    // Read public key file and extract base64 part
+    NSString *publicKeyString = [NSString stringWithContentsOfFile:publicKeyPath encoding:NSUTF8StringEncoding error:nil];
+    XCTAssertNotNil(publicKeyString, @"Should be able to read public key file");
+    
+    // Extract base64 part from "ssh-rsa AAAAB3... comment"
+    NSArray *parts = [publicKeyString componentsSeparatedByString:@" "];
+    XCTAssertTrue(parts.count >= 2, @"Public key should have at least 2 parts");
+    NSString *base64Key = parts[1];
+    NSData *publicKeyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
+    XCTAssertNotNil(publicKeyData, @"Should be able to decode base64 public key");
+    
+    // Read private key data and convert PEM to DER
+    NSData *privateKeyPEM = [NSData dataWithContentsOfFile:privateKeyPath];
+    XCTAssertNotNil(privateKeyPEM, @"Should be able to read private key file");
+    NSData *privateKeyDER = [self convertPEMToDER:privateKeyPEM];
+    XCTAssertNotNil(privateKeyDER, @"Should be able to convert PEM to DER");
+    
+    session = [NMSSHSession connectToHost:host withUsername:username];
+    XCTAssertTrue([session isConnected], @"Should connect to test server");
+    
+    // Create signing callback using SecKeyCreateSignature
+    int(^signCallback)(NSData *, NSData **) = ^int(NSData *data, NSData **signature) {
+        @try {
+            // Create SecKey from DER data
+            NSDictionary *keyAttrs = @{
+                (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
+                (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate
+            };
+            
+            CFErrorRef error = NULL;
+            SecKeyRef privateKey = SecKeyCreateWithData((__bridge CFDataRef)privateKeyDER, 
+                                                       (__bridge CFDictionaryRef)keyAttrs, 
+                                                       &error);
+            if (!privateKey) {
+                if (error) CFRelease(error);
+                return -1;
+            }
+            
+            // Sign with SHA1 (SSH default for RSA)
+            CFDataRef signatureData = SecKeyCreateSignature(privateKey, 
+                                                           kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA1,
+                                                           (__bridge CFDataRef)data, 
+                                                           &error);
+            CFRelease(privateKey);
+            
+            if (!signatureData) {
+                if (error) CFRelease(error);
+                return -1;
+            }
+            
+            *signature = (__bridge_transfer NSData *)signatureData;
+            return 0;
+            
+        } @catch (NSException *exception) {
+            return -1;
+        }
+    };
+    
+    XCTAssertNoThrow([session authenticateByInMemoryPublicKey:publicKeyData
+                                                 signCallback:signCallback],
+                    @"Authentication with sign callback should not throw");
+    
+    BOOL isAuthorized = [session isAuthorized];
+    XCTAssertTrue(isAuthorized, @"Authentication with real RSA signature should work");
 }
 
 @end

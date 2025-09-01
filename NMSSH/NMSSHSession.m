@@ -3,6 +3,21 @@
 #import "NMSSHConfig.h"
 #import "NMSSHHostConfig.h"
 
+// Static callback function for libssh2 public key signing
+static LIBSSH2_USERAUTH_PUBLICKEY_SIGN_FUNC(nmssh_sign_callback_wrapper) {
+    int(^block)(NSData *, NSData **) = (__bridge int(^)(NSData *, NSData **))*abstract;
+    NSData *dataToSign = [NSData dataWithBytes:data length:data_len];
+    NSData *signature = nil;
+    
+    int result = block(dataToSign, &signature);
+    if (result == 0 && signature) {
+        *sig_len = signature.length;
+        *sig = malloc(*sig_len);
+        memcpy(*sig, signature.bytes, *sig_len);
+    }
+    return result;
+}
+
 @interface NMSSHSession ()
 @property (nonatomic, assign) LIBSSH2_AGENT *agent;
 
@@ -485,6 +500,31 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
 
     NMSSHLogVerbose(@"Public key authentication succeeded.");
 
+    return self.isAuthorized;
+}
+
+- (BOOL)authenticateByInMemoryPublicKey:(NSData *)publicKey
+                           signCallback:(int(^)(NSData *data, NSData **signature))signCallback {
+    if (![self supportsAuthenticationMethod:@"publickey"]) {
+        return NO;
+    }
+    
+    // Store the block in abstract pointer
+    void *abstract = (__bridge void *)signCallback;
+    
+    int error = libssh2_userauth_publickey(self.session,
+                                         [self.username UTF8String],
+                                         publicKey.bytes,
+                                         publicKey.length,
+                                         nmssh_sign_callback_wrapper,
+                                         &abstract);
+    
+    if (error) {
+        NMSSHLogError(@"Public key authentication with callback failed with reason %i", error);
+        return NO;
+    }
+    
+    NMSSHLogVerbose(@"Public key authentication with callback succeeded.");
     return self.isAuthorized;
 }
 

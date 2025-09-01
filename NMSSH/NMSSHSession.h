@@ -254,6 +254,16 @@ typedef NS_ENUM(NSInteger, NMSSHKnownHostStatus) {
                             andPassword:(nullable NSString *)password;
 
 /**
+ Authenticate by public key with custom signing callback
+
+ @param publicKey public key data
+ @param signCallback block that signs data with the private key
+ @returns Authentication success
+ */
+- (BOOL)authenticateByInMemoryPublicKey:(nonnull NSData *)publicKey
+                           signCallback:(nonnull int(^)(NSData * _Nonnull data, NSData * _Nullable * _Nonnull signature))signCallback;
+
+/**
  Authenticate by keyboard-interactive using delegate.
 
  @returns Authentication success
