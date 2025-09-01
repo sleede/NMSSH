@@ -23,7 +23,11 @@
     session = [NMSSHSession connectToHost:[settings objectForKey:@"host"]
                              withUsername:[settings objectForKey:@"user"]];
     [session authenticateByPassword:[settings objectForKey:@"password"]];
-    assert([session isAuthorized]);
+    
+    if (![session isAuthorized]) {
+        XCTFail(@"Failed to authenticate session in setUp - cannot run SFTP tests");
+        return;
+    }
 
     sftp = [NMSFTP connectWithSession:session];
 }

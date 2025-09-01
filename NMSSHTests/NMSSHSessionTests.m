@@ -124,8 +124,8 @@
     NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
     NSString *publicKey = [validPublicKeyProtectedServer
                            objectForKey:@"valid_public_key"];
-    NSString *password = [validPublicKeyProtectedServer
-                          objectForKey:@"password"];
+    id passwordObj = [validPublicKeyProtectedServer objectForKey:@"password"];
+    NSString *password = ([passwordObj isKindOfClass:[NSNull class]]) ? nil : passwordObj;
 
     session = [NMSSHSession connectToHost:host withUsername:username];
 
@@ -143,7 +143,7 @@
     NSString *host = [validPublicKeyProtectedServer objectForKey:@"host"];
     NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
     NSString *publicKey = [validPublicKeyProtectedServer
-                           objectForKey:@"valid_public_key"];
+                           objectForKey:@"password_protected_key"];
 
     session = [NMSSHSession connectToHost:host withUsername:username];
 
@@ -182,8 +182,8 @@
     NSString *username = [invalidServer objectForKey:@"user"];
     NSString *publicKey = [validPublicKeyProtectedServer
                            objectForKey:@"valid_public_key"];
-    NSString *password = [validPublicKeyProtectedServer
-                          objectForKey:@"password"];
+    id passwordObj = [validPublicKeyProtectedServer objectForKey:@"password"];
+    NSString *password = ([passwordObj isKindOfClass:[NSNull class]]) ? nil : passwordObj;
 
     session = [NMSSHSession connectToHost:host withUsername:username];
 

@@ -26,7 +26,6 @@
 		A6AE1EBE191C835900780C19 /* NMSSHConfigTests.m in Sources */ = {isa = PBXBuildFile; fileRef = A6AE1EBD191C835900780C19 /* NMSSHConfigTests.m */; };
 		A6AE1ECA191EDBD700780C19 /* NMSSHHostConfig.h in Headers */ = {isa = PBXBuildFile; fileRef = A6AE1EC8191EDBD700780C19 /* NMSSHHostConfig.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		A6AE1ECB191EDBD700780C19 /* NMSSHHostConfig.m in Sources */ = {isa = PBXBuildFile; fileRef = A6AE1EC9191EDBD700780C19 /* NMSSHHostConfig.m */; };
-		E42815BC1593D13800CF680C /* YAML.framework in CopyFiles */ = {isa = PBXBuildFile; fileRef = E4E96DD9158FD65D002E6E0A /* YAML.framework */; };
 		E42815BF1593D6E900CF680C /* NMSSHSessionTests.m in Sources */ = {isa = PBXBuildFile; fileRef = E42815BE1593D6E900CF680C /* NMSSHSessionTests.m */; };
 		E42815C21593D95200CF680C /* NMSSHSession.h in Headers */ = {isa = PBXBuildFile; fileRef = E42815C01593D95200CF680C /* NMSSHSession.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E42815C31593D95200CF680C /* NMSSHSession.m in Sources */ = {isa = PBXBuildFile; fileRef = E42815C11593D95200CF680C /* NMSSHSession.m */; };
@@ -41,7 +40,6 @@
 		E4E96D88158E10FD002E6E0A /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E4E96D87158E10FD002E6E0A /* Cocoa.framework */; };
 		E4E96D9F158E10FD002E6E0A /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E4E96D87158E10FD002E6E0A /* Cocoa.framework */; };
 		E4E96DA2158E10FD002E6E0A /* NMSSH.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E4E96D84158E10FD002E6E0A /* NMSSH.framework */; };
-		E4E96DDA158FD65D002E6E0A /* YAML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E4E96DD9158FD65D002E6E0A /* YAML.framework */; };
 		E4E96DDC158FD6B6002E6E0A /* config.yml in Resources */ = {isa = PBXBuildFile; fileRef = E4E96DDB158FD6B6002E6E0A /* config.yml */; };
 		E4F1CBB4172073A00025EBFC /* socket_helper.m in Sources */ = {isa = PBXBuildFile; fileRef = E4F1CBB3172073A00025EBFC /* socket_helper.m */; };
 		E4F1E67C159F5923007B0B2F /* NMSSHChannelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = E4F1E67B159F5923007B0B2F /* NMSSHChannelTests.m */; };
@@ -66,7 +64,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 16;
 			files = (
-				E42815BC1593D13800CF680C /* YAML.framework in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -123,7 +120,6 @@
 		E4E96D94158E10FD002E6E0A /* NMSSH.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NMSSH.h; sourceTree = "<group>"; };
 		E4E96D9C158E10FD002E6E0A /* NMSSHTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NMSSHTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E4E96DA5158E10FD002E6E0A /* NMSSHTests-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "NMSSHTests-Info.plist"; sourceTree = "<group>"; };
-		E4E96DD9158FD65D002E6E0A /* YAML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = YAML.framework; sourceTree = "<group>"; };
 		E4E96DDB158FD6B6002E6E0A /* config.yml */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = config.yml; sourceTree = "<group>"; };
 		E4F1CBB217206D730025EBFC /* NMSSHLogger.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NMSSHLogger.h; sourceTree = "<group>"; };
 		E4F1CBB3172073A00025EBFC /* socket_helper.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = socket_helper.m; sourceTree = "<group>"; };
@@ -154,7 +150,6 @@
 			files = (
 				E4E96D9F158E10FD002E6E0A /* Cocoa.framework in Frameworks */,
 				E4E96DA2158E10FD002E6E0A /* NMSSH.framework in Frameworks */,
-				E4E96DDA158FD65D002E6E0A /* YAML.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -313,7 +308,6 @@
 		E4E96DD8158FD65D002E6E0A /* lib */ = {
 			isa = PBXGroup;
 			children = (
-				E4E96DD9158FD65D002E6E0A /* YAML.framework */,
 			);
 			path = lib;
 			sourceTree = "<group>";
