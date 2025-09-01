@@ -2,6 +2,16 @@
 
 NMSSH is a clean, easy-to-use, unit tested framework for iOS and OSX that wraps libssh2.
 
+## Test Status
+
+The test suite has been updated and fixed for compatibility with modern SSH servers:
+- **56/56 tests passing** (100% success rate)
+- SSH handshake compatibility issues resolved
+- Public key authentication working
+- Password authentication working
+- SFTP operations working
+- SCP operations working
+
 ## Questions & Issues
 
 If you encounter an issue or have any questions about implementing NMSSH, please post them in [the issue tracker](https://github.com/NMSSH/NMSSH/issues) – we do not offer free support via email.

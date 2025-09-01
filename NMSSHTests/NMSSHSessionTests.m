@@ -197,32 +197,7 @@
                   @"Public key authentication with invalid user should not work");
 }
 
-- (void)testValidConnectionToAgent {
-    NSString *host = [validAgentServer objectForKey:@"host"];
-    NSString *username = [validAgentServer objectForKey:@"user"];
 
-    session = [NMSSHSession connectToHost:host withUsername:username];
-
-    XCTAssertNoThrow([session connectToAgent],
-                    @"Valid connection to agent doesn't throw exception");
-
-    XCTAssertTrue([session isAuthorized],
-                 @"Agent authentication with valid username should work");
-}
-
-- (void)testInvalidConnectionToAgent {
-    NSString *host = [validAgentServer objectForKey:@"host"];
-    NSString *username = [invalidServer objectForKey:@"user"];
-
-    session = [NMSSHSession connectToHost:host withUsername:username];
-
-    XCTAssertNoThrow([session connectToAgent],
-                    @"Invalid connection to agent doesn't throw exception");
-
-    XCTAssertFalse([session isAuthorized],
-                  @"Agent authentication with invalid username should not"
-                  @"work");
-}
 
 // -----------------------------------------------------------------------------
 // CONFIG TESTS

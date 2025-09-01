@@ -1,21 +1,13 @@
 version: '3.8'
 services:
   ssh-server:
-    image: linuxserver/openssh-server
-    container_name: nmssh-test-server
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=UTC
-      - PASSWORD_ACCESS=true
-      - USER_PASSWORD=password
-      - USER_NAME=user
-      - SUDO_ACCESS=false
-      - PUBLIC_KEY_FILE=/config/ssh_host_rsa_key.pub
+    image: panubo/sshd:1.1.0
     ports:
-      - "2222:2222"
+      - "2222:22"
+    environment:
+      - SSH_USERS=user:1000:1000
+      - SSH_ENABLE_PASSWORD_AUTH=true
     volumes:
-      - ./test-data:/var/www/nmssh-tests
-      - ./ssh-keys:/config/.ssh
-      - ./sshd_config:/etc/ssh/sshd_config
-    restart: unless-stopped
+      - ./ssh-keys/authorized_keys:/home/user/.ssh/authorized_keys:ro
+      - ./test-data:/var/www/nmssh-tests:ro
+    command: sh -c "echo 'user:password' | chpasswd && mkdir -p /var/www && cp -r /var/www/nmssh-tests /var/www/nmssh-tests-temp && rm -rf /var/www/nmssh-tests && mv /var/www/nmssh-tests-temp /var/www/nmssh-tests && chown -R user:user /var/www/nmssh-tests && chmod -R 755 /var/www/nmssh-tests/valid && chmod -R 555 /var/www/nmssh-tests/invalid && /usr/sbin/sshd -D"
