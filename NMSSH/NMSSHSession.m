@@ -656,6 +656,17 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
 
     return [fingerprint copy];
 }
+- (nullable NSData *)rawFingerprintWithType:(int *)pType {
+    if (!self.session) {
+        return nil;
+    }
+    size_t length = 0;
+    const char *hostkey = libssh2_session_hostkey(self.session, &length, pType);
+    if (!hostkey || length == 0) {
+        return nil;
+    }
+    return [NSData dataWithBytes:hostkey length:length];
+}
 
 // -----------------------------------------------------------------------------
 #pragma mark - KNOWN HOSTS

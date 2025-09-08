@@ -306,6 +306,15 @@ typedef NS_ENUM(NSInteger, NMSSHKnownHostStatus) {
  */
 - (nullable NSString *)fingerprint:(NMSSHSessionHash)hashType;
 
+/**
+ Get the raw fingerprint of the remote host.
+ The session must be connected to an host.
+
+ @param ptype The type of the fingerprint
+ @returns The host's fingerprint as a raw NSDaat
+ */
+- (nullable NSData *)rawFingerprintWithType:(int *)pType;
+
 /// ----------------------------------------------------------------------------
 /// @name Known hosts
 /// ----------------------------------------------------------------------------
