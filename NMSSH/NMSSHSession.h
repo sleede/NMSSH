@@ -190,17 +190,17 @@ typedef NS_ENUM(NSInteger, NMSSHKnownHostStatus) {
 /**
  Connect to the server using the default timeout (10 seconds)
 
- @returns Connection status
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)connect;
+- (int)connect;
 
 /**
  Connect to the server.
 
  @param timeout The time, in seconds, to wait before giving up.
- @returns Connection status
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)connectWithTimeout:(nonnull NSNumber *)timeout;
+- (int)connectWithTimeout:(nonnull NSNumber *)timeout;
 
 /**
  Close the session
@@ -221,9 +221,9 @@ typedef NS_ENUM(NSInteger, NMSSHKnownHostStatus) {
  Authenticate by password
 
  @param password Password for connected user
- @returns Authentication success
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)authenticateByPassword:(nonnull NSString *)password;
+- (int)authenticateByPassword:(nonnull NSString *)password;
 
 /**
  Authenticate by private key pair from file(s)
@@ -233,9 +233,9 @@ typedef NS_ENUM(NSInteger, NMSSHKnownHostStatus) {
  @param publicKey Filepath to public key
  @param privateKey Filepath to private key
  @param password Password for encrypted private key
- @returns Authentication success
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)authenticateByPublicKey:(nullable NSString *)publicKey
+- (int)authenticateByPublicKey:(nullable NSString *)publicKey
                      privateKey:(nonnull NSString *)privateKey
                     andPassword:(nullable NSString *)password;
 
@@ -247,9 +247,9 @@ typedef NS_ENUM(NSInteger, NMSSHKnownHostStatus) {
  @param publicKey public key
  @param privateKey private key
  @param password Password for encrypted private key
- @returns Authentication success
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)authenticateByInMemoryPublicKey:(nullable NSString *)publicKey
+- (int)authenticateByInMemoryPublicKey:(nullable NSString *)publicKey
                              privateKey:(nonnull NSString *)privateKey
                             andPassword:(nullable NSString *)password;
 
@@ -258,17 +258,17 @@ typedef NS_ENUM(NSInteger, NMSSHKnownHostStatus) {
 
  @param publicKey public key data
  @param signCallback block that signs data with the private key
- @returns Authentication success
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)authenticateByInMemoryPublicKey:(nonnull NSData *)publicKey
+- (int)authenticateByInMemoryPublicKey:(nonnull NSData *)publicKey
                            signCallback:(nonnull int(^)(NSData * _Nonnull data, NSData * _Nullable * _Nonnull signature))signCallback;
 
 /**
  Authenticate by keyboard-interactive using delegate.
 
- @returns Authentication success
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)authenticateByKeyboardInteractive;
+- (int)authenticateByKeyboardInteractive;
 
 /**
  Authenticate by keyboard-interactive using block.
@@ -279,16 +279,16 @@ typedef NS_ENUM(NSInteger, NMSSHKnownHostStatus) {
      _request_ - Question from server<br>
      The block returns a NSString object that represents a valid response
      to the given question.
- @returns Authentication success
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)authenticateByKeyboardInteractiveUsingBlock:(NSString * _Nonnull(^_Nullable)( NSString * _Nonnull request))authenticationBlock;
+- (int)authenticateByKeyboardInteractiveUsingBlock:(NSString * _Nonnull(^_Nullable)( NSString * _Nonnull request))authenticationBlock;
 
 /**
  Setup and connect to an SSH agent
 
- @returns Authentication success
+ @returns libssh2 error code (0 for success, negative for error)
  */
-- (BOOL)connectToAgent;
+- (int)connectToAgent;
 
 /**
  Get supported authentication methods

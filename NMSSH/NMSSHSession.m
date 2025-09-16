@@ -216,11 +216,12 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
 #pragma mark - OPEN/CLOSE A CONNECTION TO THE SERVER
 // -----------------------------------------------------------------------------
 
-- (BOOL)connect {
-    return [self connectWithTimeout:[NSNumber numberWithLong:10]];
+- (int)connect {
+    int result = [self connectWithTimeout:[NSNumber numberWithLong:10]];
+    return result;
 }
 
-- (BOOL)connectWithTimeout:(NSNumber *)timeout {
+- (int)connectWithTimeout:(NSNumber *)timeout {
     if (self.isConnected) {
         [self disconnect];
     }
@@ -238,7 +239,7 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
     });
 
     if (!initialized) {
-        return NO;
+        return LIBSSH2_ERROR_ALLOC;
     }
     // Try to establish a connection to the server
     NSUInteger index = -1;
@@ -285,7 +286,7 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
         if (!_socket) {
             NMSSHLogError(@"Error creating the socket");
             CFRelease(address);
-            return NO;
+            return LIBSSH2_ERROR_SOCKET_NONE;
         }
         
         // Set NOSIGPIPE
@@ -294,7 +295,7 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
             NMSSHLogError(@"Error setting socket option");
             CFRelease(address);
             [self disconnect];
-            return NO;
+            return LIBSSH2_ERROR_SOCKET_NONE;
         }
         
         error = CFSocketConnectToAddress(_socket, address, [timeout doubleValue]);
@@ -312,7 +313,7 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
         NMSSHLogError(@"Failure establishing socket connection");
         [self disconnect];
 
-        return NO;
+        return LIBSSH2_ERROR_SOCKET_DISCONNECT;
     }
 
     // Create a session instance
@@ -341,11 +342,12 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
     libssh2_session_method_pref(self.session, LIBSSH2_METHOD_MAC_SC, "hmac-sha2-256,hmac-sha2-512,hmac-sha1");
 
     // Start the session
-    if (libssh2_session_handshake(self.session, CFSocketGetNative(_socket))) {
+    int handshakeResult = libssh2_session_handshake(self.session, CFSocketGetNative(_socket));
+    if (handshakeResult) {
         NMSSHLogError(@"Failure establishing SSH session");
         [self disconnect];
 
-        return NO;
+        return handshakeResult;
     }
 
     NMSSHLogVerbose(@"Remote host banner is %@", [self remoteBanner]);
@@ -359,7 +361,7 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
         NMSSHLogWarn(@"Fingerprint refused, aborting connection...");
         [self disconnect];
 
-        return NO;
+        return LIBSSH2_ERROR_AUTHENTICATION_FAILED;
     }
 
     NMSSHLogVerbose(@"SSH session started");
@@ -367,7 +369,7 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
     // We managed to successfully setup a connection
     [self setConnected:YES];
 
-    return self.isConnected;
+    return 0;
 }
 
 
@@ -418,33 +420,33 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
     return NO;
 }
 
-- (BOOL)authenticateByPassword:(NSString *)password {
+- (int)authenticateByPassword:(NSString *)password {
 
     if (!password) {
-        return NO;
+        return LIBSSH2_ERROR_INVAL;
     }
 
     if (![self supportsAuthenticationMethod:@"password"]) {
-        return NO;
+        return LIBSSH2_ERROR_METHOD_NOT_SUPPORTED;
     }
 
     // Try to authenticate by password
     int error = libssh2_userauth_password(self.session, [self.username UTF8String], [password UTF8String]);
     if (error) {
         NMSSHLogError(@"Password authentication failed with reason %i", error);
-        return NO;
+        return error;
     }
 
     NMSSHLogVerbose(@"Password authentication succeeded.");
 
-    return self.isAuthorized;
+    return 0;
 }
 
-- (BOOL)authenticateByPublicKey:(NSString *)publicKey
+- (int)authenticateByPublicKey:(NSString *)publicKey
                      privateKey:(NSString *)privateKey
                     andPassword:(NSString *)password {
     if (![self supportsAuthenticationMethod:@"publickey"]) {
-        return NO;
+        return LIBSSH2_ERROR_METHOD_NOT_SUPPORTED;
     }
 
     if (password == nil) {
@@ -464,19 +466,19 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
 
     if (error) {
         NMSSHLogError(@"Public key authentication failed with reason %i", error);
-        return NO;
+        return error;
     }
 
     NMSSHLogVerbose(@"Public key authentication succeeded.");
 
-    return self.isAuthorized;
+    return 0;
 }
 
-- (BOOL)authenticateByInMemoryPublicKey:(NSString *)publicKey
+- (int)authenticateByInMemoryPublicKey:(NSString *)publicKey
                              privateKey:(NSString *)privateKey
                             andPassword:(NSString *)password {
     if (![self supportsAuthenticationMethod:@"publickey"]) {
-        return NO;
+        return LIBSSH2_ERROR_METHOD_NOT_SUPPORTED;
     }
 
     if (password == nil) {
@@ -495,18 +497,18 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
 
     if (error) {
         NMSSHLogError(@"Public key authentication failed with reason %i", error);
-        return NO;
+        return error;
     }
 
     NMSSHLogVerbose(@"Public key authentication succeeded.");
 
-    return self.isAuthorized;
+    return 0;
 }
 
-- (BOOL)authenticateByInMemoryPublicKey:(NSData *)publicKey
+- (int)authenticateByInMemoryPublicKey:(NSData *)publicKey
                            signCallback:(int(^)(NSData *data, NSData **signature))signCallback {
     if (![self supportsAuthenticationMethod:@"publickey"]) {
-        return NO;
+        return LIBSSH2_ERROR_METHOD_NOT_SUPPORTED;
     }
     
     // Store the block in abstract pointer
@@ -521,20 +523,20 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
     
     if (error) {
         NMSSHLogError(@"Public key authentication with callback failed with reason %i", error);
-        return NO;
+        return error;
     }
     
     NMSSHLogVerbose(@"Public key authentication with callback succeeded.");
-    return self.isAuthorized;
+    return 0;
 }
 
-- (BOOL)authenticateByKeyboardInteractive {
+- (int)authenticateByKeyboardInteractive {
     return [self authenticateByKeyboardInteractiveUsingBlock:nil];
 }
 
-- (BOOL)authenticateByKeyboardInteractiveUsingBlock:(NSString *(^)(NSString *request))authenticationBlock {
+- (int)authenticateByKeyboardInteractiveUsingBlock:(NSString *(^)(NSString *request))authenticationBlock {
     if (![self supportsAuthenticationMethod:@"keyboard-interactive"]) {
-        return NO;
+        return LIBSSH2_ERROR_METHOD_NOT_SUPPORTED;
     }
 
     self.kbAuthenticationBlock = authenticationBlock;
@@ -543,12 +545,12 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
 
     if (rc != 0) {
         NMSSHLogError(@"Keyboard-interactive authentication failed with reason %i", rc);
-        return NO;
+        return rc;
     }
 
     NMSSHLogVerbose(@"Keyboard-interactive authentication succeeded.");
 
-    return self.isAuthorized;
+    return 0;
 }
 
 - (void)setAgent:(LIBSSH2_AGENT *)agent {
@@ -558,28 +560,30 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
     }
 }
 
-- (BOOL)connectToAgent {
+- (int)connectToAgent {
     if (![self supportsAuthenticationMethod:@"publickey"]) {
-        return NO;
+        return LIBSSH2_ERROR_METHOD_NOT_SUPPORTED;
     }
 
     // Try to setup a connection to the SSH-agent
     [self setAgent:libssh2_agent_init(self.session)];
     if (!self.agent) {
         NMSSHLogError(@"Could not start a new agent");
-        return NO;
+        return LIBSSH2_ERROR_AGENT_PROTOCOL;
     }
 
     // Try connecting to the agent
-    if (libssh2_agent_connect(self.agent)) {
+    int connectResult = libssh2_agent_connect(self.agent);
+    if (connectResult) {
         NMSSHLogError(@"Failed connection to agent");
-        return NO;
+        return connectResult;
     }
 
     // Try to fetch available SSH identities
-    if (libssh2_agent_list_identities(self.agent)) {
+    int listResult = libssh2_agent_list_identities(self.agent);
+    if (listResult) {
         NMSSHLogError(@"Failed to request agent identities");
-        return NO;
+        return listResult;
     }
 
     // Search for the correct identity and try to authenticate
@@ -588,18 +592,18 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
         int error = libssh2_agent_get_identity(self.agent, &identity, prev_identity);
         if (error) {
             NMSSHLogError(@"Failed to find a valid identity for the agent");
-            return NO;
+            return error;
         }
 
         error = libssh2_agent_userauth(self.agent, [self.username UTF8String], identity);
         if (!error) {
-            return self.isAuthorized;
+            return 0;
         }
 
         prev_identity = identity;
     }
 
-    return NO;
+    return LIBSSH2_ERROR_AUTHENTICATION_FAILED;
 }
 
 - (NSArray *)supportedAuthenticationMethods {
