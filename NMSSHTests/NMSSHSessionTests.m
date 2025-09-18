@@ -394,6 +394,21 @@
     
     BOOL isAuthorized = [session isAuthorized];
     XCTAssertTrue(isAuthorized, @"Authentication with real RSA signature should work");
+
+    NMSSHChannel *channel = [[NMSSHChannel alloc] initWithSession:session];
+
+    NSError *error = nil;
+    XCTAssertNoThrow([channel execute:[validPasswordProtectedServer objectForKey:@"execute_command"]
+                               error:&error],
+                    @"SignCallback: Execution should not throw an exception");
+
+    XCTAssertTrue(error == nil, @"Signcallback: Exec after sign with real RSA signature should work");
+
+    NSLog(@"SignCallback: %@", [channel lastResponse]);
+
+    XCTAssertEqualObjects([channel lastResponse],
+                         [validPasswordProtectedServer objectForKey:@"execute_expected_response"],
+                         @"SignCallback: Execution returns the expected response");
 }
 
 @end
