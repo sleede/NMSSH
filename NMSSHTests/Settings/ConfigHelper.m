@@ -47,6 +47,8 @@
         NSString *validKeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_rsa_nopass.pub"];
         NSString *invalidKeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/github_rsa.pub"];
         NSString *passwordProtectedKeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_rsa_pem.pub"];
+        NSString *p256KeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ecdsa_p256.pub"];
+        NSString *ed25519KeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ed25519.pub"];
         
         config = @{
             @"valid_password_protected_server": @{
@@ -64,6 +66,8 @@
                 @"valid_public_key": validKeyPath,
                 @"invalid_public_key": invalidKeyPath,
                 @"password_protected_key": passwordProtectedKeyPath,
+                @"p256_key": p256KeyPath,
+                @"ed25519_key": ed25519KeyPath,
                 @"password": [NSNull null]
             },
             @"invalid_server": @{

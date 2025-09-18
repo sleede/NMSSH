@@ -317,6 +317,8 @@
     base64String = [base64String stringByReplacingOccurrencesOfString:@"-----END RSA PRIVATE KEY-----" withString:@""];
     base64String = [base64String stringByReplacingOccurrencesOfString:@"-----BEGIN PRIVATE KEY-----" withString:@""];
     base64String = [base64String stringByReplacingOccurrencesOfString:@"-----END PRIVATE KEY-----" withString:@""];
+    base64String = [base64String stringByReplacingOccurrencesOfString:@"-----BEGIN EC PRIVATE KEY-----" withString:@""];
+    base64String = [base64String stringByReplacingOccurrencesOfString:@"-----END EC PRIVATE KEY-----" withString:@""];
     base64String = [base64String stringByReplacingOccurrencesOfString:@"\n" withString:@""];
     base64String = [base64String stringByReplacingOccurrencesOfString:@"\r" withString:@""];
     base64String = [base64String stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -409,6 +411,44 @@
     XCTAssertEqualObjects([channel lastResponse],
                          [validPasswordProtectedServer objectForKey:@"execute_expected_response"],
                          @"SignCallback: Execution returns the expected response");
+}
+
+// -----------------------------------------------------------------------------
+// P256 ECDSA KEY TESTS
+// -----------------------------------------------------------------------------
+
+- (void)testP256ECDSAPublicKeyAuthentication {
+    NSString *host = [validPublicKeyProtectedServer objectForKey:@"host"];
+    NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
+    NSString *publicKey = [validPublicKeyProtectedServer objectForKey:@"p256_key"];
+
+    session = [NMSSHSession connectToHost:host withUsername:username];
+
+    XCTAssertNoThrow([session authenticateByPublicKey:publicKey
+                                          privateKey:[publicKey stringByDeletingPathExtension]
+                                         andPassword:nil],
+                    @"P256 ECDSA authentication should not throw");
+
+    XCTAssertTrue([session isAuthorized], @"P256 ECDSA authentication should work");
+}
+
+// -----------------------------------------------------------------------------
+// ED25519 KEY TESTS
+// -----------------------------------------------------------------------------
+
+- (void)testEd25519PublicKeyAuthentication {
+    NSString *host = [validPublicKeyProtectedServer objectForKey:@"host"];
+    NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
+    NSString *publicKey = [validPublicKeyProtectedServer objectForKey:@"ed25519_key"];
+
+    session = [NMSSHSession connectToHost:host withUsername:username];
+
+    XCTAssertNoThrow([session authenticateByPublicKey:publicKey
+                                          privateKey:[publicKey stringByDeletingPathExtension]
+                                         andPassword:nil],
+                    @"Ed25519 authentication should not throw");
+
+    XCTAssertTrue([session isAuthorized], @"Ed25519 authentication should work");
 }
 
 @end
