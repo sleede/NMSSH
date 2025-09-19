@@ -4,6 +4,7 @@
 
 /tests/import_ec
 /tests/test_ec
+/tests/sign_ec
 
 ## Build generated
 build/

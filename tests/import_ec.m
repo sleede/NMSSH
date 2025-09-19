@@ -93,23 +93,133 @@ NSData* dataFromHex(NSString* hex) {
     return data;
 }
 
-// Extract 32-byte scalar from PKCS#8 PEM
+// Replace your old extractScalarFromPKCS8 with this.
+#import <Foundation/Foundation.h>
+
+static BOOL read_length(const uint8_t *bytes, NSUInteger bytesLen, NSUInteger *pos, NSUInteger *outLen) {
+    if (*pos >= bytesLen) return NO;
+    uint8_t b = bytes[(*pos)++];
+    if ((b & 0x80) == 0) {
+        *outLen = b;
+        return (*pos <= bytesLen);
+    }
+    uint8_t num = b & 0x7F;
+    if (num == 0 || num > 4) return NO; // reject weird lengths
+    if ((*pos + num) > bytesLen) return NO;
+    NSUInteger val = 0;
+    for (uint8_t i = 0; i < num; ++i) {
+        val = (val << 8) | bytes[(*pos)++];
+    }
+    *outLen = val;
+    return YES;
+}
+
+static BOOL expect_tag(const uint8_t *bytes, NSUInteger bytesLen, NSUInteger *pos, uint8_t expectedTag, NSUInteger *outLen) {
+    if (*pos >= bytesLen) return NO;
+    uint8_t tag = bytes[(*pos)++];
+    if (tag != expectedTag) return NO;
+    if (!read_length(bytes, bytesLen, pos, outLen)) return NO;
+    if ((*pos + *outLen) > bytesLen) return NO;
+    return YES;
+}
+
 NSData* extractScalarFromPKCS8(NSString* path) {
-    NSString *pem = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    NSError *err = nil;
+    NSString *pem = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&err];
+    if (!pem) {
+        NSLog(@"Failed to read PEM: %@", err);
+        return nil;
+    }
+
     pem = [pem stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"];
     pem = [pem stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
     pem = [pem stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 
     NSRange start = [pem rangeOfString:@"-----BEGIN PRIVATE KEY-----"];
     NSRange end   = [pem rangeOfString:@"-----END PRIVATE KEY-----"];
+    if (start.location == NSNotFound || end.location == NSNotFound) {
+        NSLog(@"PEM delimiters not found");
+        return nil;
+    }
     NSString *b64str = [pem substringWithRange:NSMakeRange(NSMaxRange(start), end.location - NSMaxRange(start))];
     b64str = [[b64str componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] componentsJoinedByString:@""];
     NSData *der = [[NSData alloc] initWithBase64EncodedString:b64str options:0];
+    if (!der) {
+        NSLog(@"Base64 decode failed");
+        return nil;
+    }
 
-    NSData *scalar = [der subdataWithRange:NSMakeRange(der.length-32,32)];
-    NSLog(@"Original scalar (32 bytes): %@", hex(scalar));
+    const uint8_t *bytes = der.bytes;
+    NSUInteger bytesLen = der.length;
+    NSUInteger pos = 0;
+
+    // Outer SEQUENCE
+    NSUInteger seqLen = 0;
+    if (!expect_tag(bytes, bytesLen, &pos, 0x30, &seqLen)) { NSLog(@"Not a SEQUENCE (outer)"); return nil; }
+    NSUInteger seqEnd = pos + seqLen;
+    if (seqEnd > bytesLen) { NSLog(@"Outer sequence length out of bounds"); return nil; }
+
+    // version INTEGER (we can skip it)
+    NSUInteger intLen = 0;
+    if (!expect_tag(bytes, bytesLen, &pos, 0x02, &intLen)) { NSLog(@"Missing version INTEGER"); return nil; }
+    pos += intLen;
+    if (pos > seqEnd) { NSLog(@"version INTEGER overflow"); return nil; }
+
+    // algorithm identifier: SEQUENCE -- skip it
+    NSUInteger algSeqLen = 0;
+    if (!expect_tag(bytes, bytesLen, &pos, 0x30, &algSeqLen)) { NSLog(@"Missing AlgorithmIdentifier SEQUENCE"); return nil; }
+    pos += algSeqLen;
+    if (pos > seqEnd) { NSLog(@"AlgorithmIdentifier overflow"); return nil; }
+
+    // Now we expect the privateKey OCTET STRING
+    NSUInteger octetLen = 0;
+    if (!expect_tag(bytes, bytesLen, &pos, 0x04, &octetLen)) { NSLog(@"Unexpected tag (not OCTET STRING)"); return nil; }
+    if ((pos + octetLen) > seqEnd) { NSLog(@"OCTET STRING length goes past outer sequence"); return nil; }
+
+    // The contents of that OCTET STRING are a DER-encoded ECPrivateKey structure.
+    const uint8_t *ecPriv = bytes + pos;
+    NSUInteger ecPrivLen = octetLen;
+    pos += octetLen; // move pos to end of outer sequence component (not strictly needed)
+
+    // Parse ECPrivateKey: expect SEQUENCE
+    NSUInteger ecPos = 0;
+    if (ecPrivLen < 2) { NSLog(@"ECPrivateKey too small"); return nil; }
+    if (ecPriv[ecPos++] != 0x30) { NSLog(@"ECPrivateKey not a SEQUENCE"); return nil; }
+    // read length of ECPrivateKey
+    NSUInteger ecSeqLen = 0;
+    NSUInteger tmpPos = ecPos;
+    if (!read_length(ecPriv, ecPrivLen, &ecPos, &ecSeqLen)) { NSLog(@"Failed to read ECPrivateKey length"); return nil; }
+    if (ecSeqLen > (ecPrivLen - ecPos)) { NSLog(@"ECPrivateKey length out of bounds"); return nil; }
+
+    // version INTEGER inside ECPrivateKey (skip)
+    if (!expect_tag(ecPriv, ecPrivLen, &ecPos, 0x02, &intLen)) { NSLog(@"ECPrivateKey missing version INTEGER"); return nil; }
+    ecPos += intLen;
+
+    // privateKey OCTET STRING: this contains the raw scalar (usually 32 bytes for P-256)
+    if (!expect_tag(ecPriv, ecPrivLen, &ecPos, 0x04, &octetLen)) { NSLog(@"ECPrivateKey missing privateKey OCTET STRING"); return nil; }
+    if (octetLen == 0) { NSLog(@"privateKey OCTET STRING is empty"); return nil; }
+    if ((ecPos + octetLen) > ecPrivLen) { NSLog(@"privateKey OCTET STRING out of bounds"); return nil; }
+
+    NSData *scalar = [NSData dataWithBytes:(ecPriv + ecPos) length:octetLen];
+    // scalar may be 32 bytes or sometimes has a leading 0 if encoded as unsigned integer. Normalize if needed:
+    if (scalar.length == 33 && ((uint8_t *)scalar.bytes)[0] == 0x00) {
+        scalar = [scalar subdataWithRange:NSMakeRange(1, 32)];
+    }
+
+    if (scalar.length != 32) {
+        NSLog(@"Warning: extracted scalar length %lu (expected 32).", (unsigned long)scalar.length);
+    }
+
+    NSLog(@"Original scalar (%lu bytes): %@", (unsigned long)scalar.length,
+          ({ // inline hex formatter
+              const unsigned char *b = scalar.bytes;
+              NSMutableString *s = [NSMutableString stringWithCapacity:scalar.length*2];
+              for (NSUInteger i = 0; i < scalar.length; ++i) [s appendFormat:@"%02x", b[i]];
+              s;
+          }));
     return scalar;
 }
+
 
 // Parse OpenSSH public key, extract Q
 NSData* parseOpenSSHPub(NSString* path) {
