@@ -414,12 +414,20 @@
   [self logHex:@"sData:" data:sData.bytes len:sData.length];
 
   NSMutableData *result = [NSMutableData data];
-  [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
+  if (((unsigned char *)rData.bytes)[0] & 0x80) {
+    [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
+  } else {
+    [result appendBytes:"\x00\x00\x00\x20" length:4];
+  }
   [result appendData:rData];
-  [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
+  if (((unsigned char *)sData.bytes)[0] & 0x80) {
+    [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
+  } else {
+    [result appendBytes:"\x00\x00\x00\x20" length:4];
+  }
   [result appendData:sData];
 
-  [self logHex:@"result:" data:result.bytes len:result.length];
+  [self logHex:@"result2:" data:result.bytes len:result.length];
   return result;
 }
 
@@ -629,6 +637,7 @@
     XCTAssertTrue(auth_error == 0, @"Callback auth should work");
     
     if (![session isAuthorized]) {
+      [session disconnect];
       return;
     }
 
@@ -646,6 +655,7 @@
     XCTAssertEqualObjects([channel lastResponse],
                          [validPasswordProtectedServer objectForKey:@"execute_expected_response"],
                          @"P256 SignCallback: Execution returns the expected response");
+    [session disconnect];
 }
 
 // -----------------------------------------------------------------------------
