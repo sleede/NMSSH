@@ -773,6 +773,102 @@ NSData* extractScalarFromPKCS8(NSString* path) {
                          @"SHA256 SignCallback: Execution returns the expected response");
 }
 
+- (void)testPublicKeyAuthenticationWithSignCallbackRSA4096SHA256Works {
+    NSString *host = [validPublicKeyProtectedServer objectForKey:@"host"];
+    NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
+    NSString *publicKeyPath = [validPublicKeyProtectedServer objectForKey:@"rsa4096_public"];
+    NSString *privateKeyPath = [validPublicKeyProtectedServer objectForKey:@"rsa4096_key"];
+    
+    // Read public key file and extract base64 part
+    NSString *publicKeyString = [NSString stringWithContentsOfFile:publicKeyPath encoding:NSUTF8StringEncoding error:nil];
+    XCTAssertNotNil(publicKeyString, @"Should be able to read RSA4096 public key file");
+    
+    // Extract base64 part from "ssh-rsa AAAAB3... comment"
+    NSArray *parts = [publicKeyString componentsSeparatedByString:@" "];
+    XCTAssertTrue(parts.count >= 2, @"RSA4096 public key should have at least 2 parts");
+    NSString *base64Key = parts[1];
+    NSData *originalPublicKeyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
+    XCTAssertNotNil(originalPublicKeyData, @"Should be able to decode base64 RSA4096 public key");
+    
+    // Create new public key blob with rsa-sha2-256 algorithm
+    NSData *publicKeyData = [self createRSASHA256PublicKeyBlob:originalPublicKeyData];
+    XCTAssertNotNil(publicKeyData, @"Should be able to create RSA4096 SHA256 public key blob");
+    
+    // Read private key data and convert PEM to DER
+    NSData *privateKeyPEM = [NSData dataWithContentsOfFile:privateKeyPath];
+    XCTAssertNotNil(privateKeyPEM, @"Should be able to read RSA4096 private key file");
+    NSData *privateKeyDER = [self convertPEMToDER:privateKeyPEM];
+    XCTAssertNotNil(privateKeyDER, @"Should be able to convert RSA4096 PEM to DER");
+    
+    session = [NMSSHSession connectToHost:host withUsername:username];
+    XCTAssertTrue([session isConnected], @"Should connect to test server");
+    
+    // Create signing callback using SHA256
+    int(^signCallback)(NSData *, NSData **) = ^int(NSData *data, NSData **signature) {
+        @try {
+            // Create SecKey from DER data
+            NSDictionary *keyAttrs = @{
+                (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
+                (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate
+            };
+            
+            CFErrorRef error = NULL;
+            SecKeyRef privateKey = SecKeyCreateWithData((__bridge CFDataRef)privateKeyDER, 
+                                                       (__bridge CFDictionaryRef)keyAttrs, 
+                                                       &error);
+            if (!privateKey) {
+                if (error) CFRelease(error);
+                return -1;
+            }
+            
+            // Sign with SHA256
+            CFDataRef signatureData = SecKeyCreateSignature(privateKey, 
+                                                           kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256,
+                                                           (__bridge CFDataRef)data, 
+                                                           &error);
+            CFRelease(privateKey);
+            
+            if (!signatureData) {
+                if (error) CFRelease(error);
+                return -1;
+            }
+            
+            *signature = (__bridge_transfer NSData *)signatureData;
+            return 0;
+            
+        } @catch (NSException *exception) {
+            return -1;
+        }
+    };
+    
+    XCTAssertNoThrow([session authenticateByInMemoryPublicKey:publicKeyData
+                                                 signCallback:signCallback],
+                    @"Authentication with RSA4096 SHA256 sign callback should not throw");
+    
+    BOOL isAuthorized = [session isAuthorized];
+    XCTAssertTrue(isAuthorized, @"Authentication with RSA4096 SHA256 signature should work");
+
+    if (!isAuthorized) {
+        [session disconnect];
+        return;
+    }
+
+    NMSSHChannel *channel = [[NMSSHChannel alloc] initWithSession:session];
+
+    NSError *error = nil;
+    XCTAssertNoThrow([channel execute:[validPasswordProtectedServer objectForKey:@"execute_command"]
+                               error:&error],
+                    @"RSA4096 SHA256 SignCallback: Execution should not throw an exception");
+
+    XCTAssertTrue(error == nil, @"RSA4096 SHA256 SignCallback: Exec after sign with RSA4096 SHA256 signature should work");
+
+    NSLog(@"RSA4096 SHA256 SignCallback: %@", [channel lastResponse]);
+
+    XCTAssertEqualObjects([channel lastResponse],
+                         [validPasswordProtectedServer objectForKey:@"execute_expected_response"],
+                         @"RSA4096 SHA256 SignCallback: Execution returns the expected response");
+}
+
 // -----------------------------------------------------------------------------
 // P256 ECDSA KEY TESTS
 // -----------------------------------------------------------------------------

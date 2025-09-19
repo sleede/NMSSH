@@ -23,6 +23,8 @@ NSString *serverHostPort = @"127.0.0.1:2222";
         NSString *p256PublicPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ecdsa_p256.pub"];
         NSString *ed25519KeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ed25519.pub"];
         NSString *ed25519PrivatePath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ed25519"];
+        NSString *rsa4096KeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_rsa4096"];
+        NSString *rsa4096PublicPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_rsa4096.pub"];
         
         if (![[NSFileManager defaultManager] fileExistsAtPath:validKeyPath]) {
             @throw @"Config failed";
@@ -49,6 +51,8 @@ NSString *serverHostPort = @"127.0.0.1:2222";
                 @"p256_public": p256PublicPath,
                 @"ed25519_key": ed25519KeyPath,
                 @"ed25519_private": ed25519PrivatePath,
+                @"rsa4096_key": rsa4096KeyPath,
+                @"rsa4096_public": rsa4096PublicPath,
                 @"password": [NSNull null]
             },
             @"invalid_server": @{
