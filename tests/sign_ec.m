@@ -72,15 +72,15 @@ int main(int argc, const char * argv[]) {
             NSLog(@"Failed to create key: %@", err);
             return 1;
         }
-        /*
         SecKeyRef exportedPubKey = SecKeyCopyPublicKey(privKey);
         NSData *exportedPub = (__bridge_transfer NSData*)SecKeyCopyExternalRepresentation(exportedPubKey, &err);
         NSLog(@"Derived public key (65 bytes): %@", hex(exportedPub));
 
-        */
         // Compute SHA-256 digest of the message
+        NSLog(@"message: %@", hex(msgData));
         NSMutableData *digest = [NSMutableData dataWithLength:CC_SHA256_DIGEST_LENGTH];
         CC_SHA256(msgData.bytes, (CC_LONG)msgData.length, digest.mutableBytes);
+        NSLog(@"digest: %@", hex(digest));
 
         // Sign the digest
         NSData *sig = (__bridge_transfer NSData *)
@@ -93,17 +93,16 @@ int main(int argc, const char * argv[]) {
             return 1;
         }
 
-        // Print DER-encoded signature as hex
-        NSMutableString *hexSig = [NSMutableString stringWithCapacity:sig.length*2];
-        const uint8_t *bytes = sig.bytes;
-        for (NSUInteger i = 0; i < sig.length; i++) {
-            [hexSig appendFormat:@"%02x", bytes[i]];
-        }
-        printf("signed2: %s\n", hexSig.UTF8String);
-        //NSLog(@"sig: %@", hex(sig));
+        NSLog(@"sig: %@", hex(sig));
 
-        CFRelease(privKey);
-        CFRelease(attrs);
+
+        NSData *sig2 = (__bridge_transfer NSData *)
+            SecKeyCreateSignature(privKey,
+                                  kSecKeyAlgorithmECDSASignatureMessageX962SHA256,
+                                  (__bridge CFDataRef)msgData,
+                                  &err);
+        NSLog(@"sig2: %@", hex(sig2));
+
     }
     return 0;
 }
