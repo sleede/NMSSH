@@ -1,8 +1,97 @@
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
 
-// Base64 helper
+@implementation NSData (NSData_Conversion)
+
+#pragma mark - String Conversion
+- (NSString *)hex {
+    /* Returns hexadecimal string of NSData. Empty string if data is empty.   */
+
+    const unsigned char *dataBuffer = (const unsigned char *)[self bytes];
+
+    if (!dataBuffer)
+        return [NSString string];
+
+    NSUInteger          dataLength  = [self length];
+    NSMutableString     *hexString  = [NSMutableString stringWithCapacity:(dataLength * 2)];
+
+    for (int i = 0; i < dataLength; ++i)
+        [hexString appendString:[NSString stringWithFormat:@"%02lx", (unsigned long)dataBuffer[i]]];
+
+    return [NSString stringWithString:hexString];
+}
+
+@end
+
+NSArray<NSData *> *parseECDSASignatureStrict(NSData *asn1Signature) {
+    const uint8_t *bytes = (const uint8_t *)asn1Signature.bytes;
+    NSUInteger length = asn1Signature.length;
+    NSUInteger pos = 0;
+
+    if (pos >= length || bytes[pos++] != 0x30) return nil; // SEQUENCE
+
+    // Read sequence length
+    if (pos >= length) return nil;
+    NSUInteger seqLen = bytes[pos++];
+    if (seqLen & 0x80) {
+        NSUInteger lenBytes = seqLen & 0x7F;
+        seqLen = 0;
+        for (NSUInteger i = 0; i < lenBytes; i++) {
+            if (pos >= length) return nil;
+            seqLen = (seqLen << 8) | bytes[pos++];
+        }
+    }
+    if (pos + seqLen != length) return nil; // sanity check
+
+    // Read r
+    if (pos >= length || bytes[pos++] != 0x02) return nil;
+    if (pos >= length) return nil;
+    NSUInteger rLen = bytes[pos++];
+    if (rLen & 0x80) return nil; // multi-byte length not expected for P-256
+    if (pos + rLen > length) return nil;
+    NSData *rData = [NSData dataWithBytes:&bytes[pos] length:rLen];
+    pos += rLen;
+
+    // Strip optional leading zero
+    if (rData.length == 33 && ((uint8_t *)rData.bytes)[0] == 0x00) {
+        rData = [rData subdataWithRange:NSMakeRange(1, 32)];
+    }
+    if (rData.length != 32) return nil; // must be exactly 32 bytes
+
+    // Read s
+    if (pos >= length || bytes[pos++] != 0x02) return nil;
+    if (pos >= length) return nil;
+    NSUInteger sLen = bytes[pos++];
+    if (sLen & 0x80) return nil;
+    if (pos + sLen > length) return nil;
+    NSData *sData = [NSData dataWithBytes:&bytes[pos] length:sLen];
+
+    // Strip optional leading zero
+    if (sData.length == 33 && ((uint8_t *)sData.bytes)[0] == 0x00) {
+        sData = [sData subdataWithRange:NSMakeRange(1, 32)];
+    }
+    if (sData.length != 32) return nil; // must be exactly 32 bytes
+
+    return @[rData, sData];
+}
+
+NSString* hex(NSData* d) { return [d hex]; }
+
 NSString* b64(NSData* d) { return [d base64EncodedStringWithOptions:0]; }
+
+NSData* dataFromHex(NSString* hex) {
+    NSMutableData *data = [NSMutableData data];
+    NSCharacterSet *hexSet = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdefABCDEF"];
+    NSString *cleanHex = [[hex componentsSeparatedByCharactersInSet:[hexSet invertedSet]] componentsJoinedByString:@""];
+    for (NSUInteger i = 0; i < cleanHex.length; i += 2) {
+        NSString *byteStr = [cleanHex substringWithRange:NSMakeRange(i, 2)];
+        unsigned int byte;
+        [[NSScanner scannerWithString:byteStr] scanHexInt:&byte];
+        uint8_t b = byte & 0xFF;
+        [data appendBytes:&b length:1];
+    }
+    return data;
+}
 
 // Extract 32-byte scalar from PKCS#8 PEM
 NSData* extractScalarFromPKCS8(NSString* path) {
@@ -18,7 +107,7 @@ NSData* extractScalarFromPKCS8(NSString* path) {
     NSData *der = [[NSData alloc] initWithBase64EncodedString:b64str options:0];
 
     NSData *scalar = [der subdataWithRange:NSMakeRange(der.length-32,32)];
-    NSLog(@"Original scalar (32 bytes): %@", b64(scalar));
+    NSLog(@"Original scalar (32 bytes): %@", hex(scalar));
     return scalar;
 }
 
@@ -34,22 +123,24 @@ NSData* parseOpenSSHPub(NSString* path) {
     uint32_t l2 = ntohl(*(uint32_t*)p); p+=4; len-=4; p+=l2; len-=l2;
     uint32_t qlen = ntohl(*(uint32_t*)p); p+=4; len-=4;
     NSData *Q = [NSData dataWithBytes:p length:qlen];
-    NSLog(@"Original Q (65 bytes): %@", b64(Q));
+    NSLog(@"Original Q (65 bytes): %@", hex(Q));
     return Q;
 }
 
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
-        if (argc != 3) { NSLog(@"Usage: %s priv.pem pub.pub", argv[0]); return 1; }
+        if (argc != 4) { NSLog(@"Usage: %s priv.pem pub.pub hexmsg", argv[0]); return 1; }
 
         NSData *scalar = extractScalarFromPKCS8([NSString stringWithUTF8String:argv[1]]);
         NSData *Q = parseOpenSSHPub([NSString stringWithUTF8String:argv[2]]);
+        NSString *hexMsg = [NSString stringWithUTF8String:argv[3]];
+        NSData *msg = dataFromHex(hexMsg);
 
         // Build 97-byte private key blob: [Q || scalar]
         NSMutableData *privBlob = [NSMutableData dataWithLength:97];
         memcpy(privBlob.mutableBytes, Q.bytes, 65);
         memcpy(privBlob.mutableBytes+65, scalar.bytes, 32);
-        NSLog(@"Private key blob (97 bytes): %@", b64(privBlob));
+        NSLog(@"Private key blob (97 bytes): %@", hex(privBlob));
 
         // Create SecKey private key
         CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(NULL, 0,
@@ -65,16 +156,31 @@ int main(int argc, const char * argv[]) {
 
         // Export private key
         NSData *exportedPriv = (__bridge_transfer NSData*)SecKeyCopyExternalRepresentation(privKey, &err);
-        NSLog(@"Exported private key (97 bytes): %@", b64(exportedPriv));
+        NSLog(@"Exported private key (97 bytes): %@", hex(exportedPriv));
         BOOL privMatch = [privBlob isEqualToData:exportedPriv];
         NSLog(@"Private key matches original blob: %@", privMatch ? @"YES" : @"NO");
 
         // Derive public key
         SecKeyRef pubKey = SecKeyCopyPublicKey(privKey);
         NSData *exportedPub = (__bridge_transfer NSData*)SecKeyCopyExternalRepresentation(pubKey, &err);
-        NSLog(@"Derived public key (65 bytes): %@", b64(exportedPub));
+        NSLog(@"Derived public key (65 bytes): %@", hex(exportedPub));
         BOOL pubMatch = [exportedPub isEqualToData:Q];
         NSLog(@"Derived public key matches original Q: %@", pubMatch ? @"YES" : @"NO");
+
+        NSLog(@"message to sign: (%lu bytes): %@", msg.length, hex(msg));
+        NSData *signature = (__bridge_transfer NSData*)SecKeyCreateSignature(privKey,
+            kSecKeyAlgorithmECDSASignatureMessageX962SHA256,
+            (__bridge CFDataRef)msg,
+            &err);
+        if (!signature) { NSLog(@"❌ Signing failed: %@", (__bridge NSError*)err); return 1; }
+
+        NSLog(@"Signature (%lu bytes): %@", (unsigned long)signature.length, hex(signature));
+
+        NSArray *r_s = parseECDSASignatureStrict(signature);
+        NSData *r = r_s[0];
+        NSData *s = r_s[1];
+        NSLog(@"r (%lu bytes): %@", r.length, hex(r));
+        NSLog(@"s (%lu bytes): %@", s.length, hex(s));
 
         CFRelease(privKey); CFRelease(pubKey);
     }
