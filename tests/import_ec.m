@@ -93,9 +93,6 @@ NSData* dataFromHex(NSString* hex) {
     return data;
 }
 
-// Replace your old extractScalarFromPKCS8 with this.
-#import <Foundation/Foundation.h>
-
 static BOOL read_length(const uint8_t *bytes, NSUInteger bytesLen, NSUInteger *pos, NSUInteger *outLen) {
     if (*pos >= bytesLen) return NO;
     uint8_t b = bytes[(*pos)++];

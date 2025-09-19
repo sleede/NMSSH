@@ -524,17 +524,9 @@ NSData* extractScalarFromPKCS8(NSString* path) {
   [self logHex:@"sData:" data:sData.bytes len:sData.length];
 
   NSMutableData *result = [NSMutableData data];
-  if (((unsigned char *)rData.bytes)[0] & 0x80) {
-    [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
-  } else {
-    [result appendBytes:"\x00\x00\x00\x20" length:4];
-  }
+  [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
   [result appendData:rData];
-  if (((unsigned char *)sData.bytes)[0] & 0x80) {
-    [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
-  } else {
-    [result appendBytes:"\x00\x00\x00\x20" length:4];
-  }
+  [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
   [result appendData:sData];
 
   [self logHex:@"result2:" data:result.bytes len:result.length];
