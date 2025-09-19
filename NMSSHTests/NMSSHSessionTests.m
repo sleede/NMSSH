@@ -645,7 +645,7 @@ NSData* extractScalarFromPKCS8(NSString* path) {
     libssh2_trace([session rawSession], ~0);
 
     XCTAssertNoThrow([session authenticateByPublicKey:publicKey
-                                          privateKey:[publicKey stringByDeletingPathExtension]
+                                          privateKey:privateKey
                                          andPassword:nil],
                     @"P256 ECDSA authentication should not throw");
 
@@ -778,11 +778,12 @@ NSData* extractScalarFromPKCS8(NSString* path) {
     NSString *host = [validPublicKeyProtectedServer objectForKey:@"host"];
     NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
     NSString *publicKey = [validPublicKeyProtectedServer objectForKey:@"ed25519_key"];
+    NSString *privateKey = [validPublicKeyProtectedServer objectForKey:@"ed25519_private"];
 
     session = [NMSSHSession connectToHost:host withUsername:username];
 
     XCTAssertNoThrow([session authenticateByPublicKey:publicKey
-                                          privateKey:[publicKey stringByDeletingPathExtension]
+                                          privateKey:privateKey
                                          andPassword:nil],
                     @"Ed25519 authentication should not throw");
 
