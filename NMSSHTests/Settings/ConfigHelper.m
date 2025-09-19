@@ -18,7 +18,9 @@ NSString *serverHostPort = @"127.0.0.1:2222";
         NSString *validKeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_rsa_nopass.pub"];
         NSString *invalidKeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/github_rsa.pub"];
         NSString *passwordProtectedKeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_rsa_pem.pub"];
-        NSString *p256KeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ecdsa_p256.pub"];
+        NSString *p256KeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ecdsa_p256"];
+        NSString *p256KeyPemPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ecdsa_p256.pem"];
+        NSString *p256PublicPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ecdsa_p256.pub"];
         NSString *ed25519KeyPath = [projectRoot stringByAppendingPathComponent:@"tests/ssh-keys/id_ed25519.pub"];
         
         if (![[NSFileManager defaultManager] fileExistsAtPath:validKeyPath]) {
@@ -42,6 +44,8 @@ NSString *serverHostPort = @"127.0.0.1:2222";
                 @"invalid_public_key": invalidKeyPath,
                 @"password_protected_key": passwordProtectedKeyPath,
                 @"p256_key": p256KeyPath,
+                @"p256_key_pem": p256KeyPemPath,
+                @"p256_public": p256PublicPath,
                 @"ed25519_key": ed25519KeyPath,
                 @"password": [NSNull null]
             },

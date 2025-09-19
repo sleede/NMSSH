@@ -354,80 +354,73 @@
     return [NSData dataWithBytes:p length:qlen];
 }
 
-- (NSData *)convertASN1SignatureToSSH:(NSData *)asn1Signature {
+- (NSArray<NSData *> *)parseECDSASignatureStrict:(NSData *)asn1Signature {
     const uint8_t *bytes = (const uint8_t *)asn1Signature.bytes;
     NSUInteger length = asn1Signature.length;
     NSUInteger pos = 0;
-    
-    if (pos >= length || bytes[pos] != 0x30) return nil;
-    pos++;
-    
+
+    if (pos >= length || bytes[pos++] != 0x30) return nil; // SEQUENCE
+
+    // Read sequence length
     if (pos >= length) return nil;
-    if (bytes[pos] & 0x80) {
-        NSUInteger lenBytes = bytes[pos] & 0x7F;
-        pos += 1 + lenBytes;
-    } else {
-        pos++;
-    }
-    
-    if (pos >= length || bytes[pos] != 0x02) return nil;
-    pos++;
-    
-    NSUInteger rLen = bytes[pos++];
-    if (rLen & 0x80) {
-        NSUInteger lenBytes = rLen & 0x7F;
-        rLen = 0;
+    NSUInteger seqLen = bytes[pos++];
+    if (seqLen & 0x80) {
+        NSUInteger lenBytes = seqLen & 0x7F;
+        seqLen = 0;
         for (NSUInteger i = 0; i < lenBytes; i++) {
-            rLen = (rLen << 8) | bytes[pos++];
+            if (pos >= length) return nil;
+            seqLen = (seqLen << 8) | bytes[pos++];
         }
     }
-    
+    if (pos + seqLen != length) return nil; // sanity check
+
+    // Read r
+    if (pos >= length || bytes[pos++] != 0x02) return nil;
+    if (pos >= length) return nil;
+    NSUInteger rLen = bytes[pos++];
+    if (rLen & 0x80) return nil; // multi-byte length not expected for P-256
+    if (pos + rLen > length) return nil;
     NSData *rData = [NSData dataWithBytes:&bytes[pos] length:rLen];
     pos += rLen;
-    
-    if (pos >= length || bytes[pos] != 0x02) return nil;
-    pos++;
-    
+
+    // Strip optional leading zero
+    if (rData.length == 33 && ((uint8_t *)rData.bytes)[0] == 0x00) {
+        rData = [rData subdataWithRange:NSMakeRange(1, 32)];
+    }
+    if (rData.length != 32) return nil; // must be exactly 32 bytes
+
+    // Read s
+    if (pos >= length || bytes[pos++] != 0x02) return nil;
+    if (pos >= length) return nil;
     NSUInteger sLen = bytes[pos++];
-    if (sLen & 0x80) {
-        NSUInteger lenBytes = sLen & 0x7F;
-        sLen = 0;
-        for (NSUInteger i = 0; i < lenBytes; i++) {
-            sLen = (sLen << 8) | bytes[pos++];
-        }
-    }
-    
+    if (sLen & 0x80) return nil;
+    if (pos + sLen > length) return nil;
     NSData *sData = [NSData dataWithBytes:&bytes[pos] length:sLen];
-    
-    NSMutableData *result = [NSMutableData data];
-    
-    // r: check if high bit set and add leading zero if needed
-    const uint8_t *rBytes = (const uint8_t *)rData.bytes;
-    if (rData.length == 32 && (rBytes[0] & 0x80)) {
-        uint32_t r_len = htonl(33);
-        [result appendBytes:&r_len length:4];
-        [result appendBytes:"\x00" length:1];
-        [result appendData:rData];
-    } else {
-        uint32_t r_len = htonl((uint32_t)rData.length);
-        [result appendBytes:&r_len length:4];
-        [result appendData:rData];
+
+    // Strip optional leading zero
+    if (sData.length == 33 && ((uint8_t *)sData.bytes)[0] == 0x00) {
+        sData = [sData subdataWithRange:NSMakeRange(1, 32)];
     }
-    
-    // s: check if high bit set and add leading zero if needed
-    const uint8_t *sBytes = (const uint8_t *)sData.bytes;
-    if (sData.length == 32 && (sBytes[0] & 0x80)) {
-        uint32_t s_len = htonl(33);
-        [result appendBytes:&s_len length:4];
-        [result appendBytes:"\x00" length:1];
-        [result appendData:sData];
-    } else {
-        uint32_t s_len = htonl((uint32_t)sData.length);
-        [result appendBytes:&s_len length:4];
-        [result appendData:sData];
-    }
-    
-    return result;
+    if (sData.length != 32) return nil; // must be exactly 32 bytes
+
+    return @[rData, sData];
+}
+
+- (NSData *)convertASN1SignatureToSSH:(NSData *)asn1Signature {
+  NSArray *array = [self parseECDSASignatureStrict:asn1Signature];
+  NSData *rData = array[0];
+  NSData *sData = array[1];
+  [self logHex:@"rData:" data:rData.bytes len:rData.length];
+  [self logHex:@"sData:" data:sData.bytes len:sData.length];
+
+  NSMutableData *result = [NSMutableData data];
+  [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
+  [result appendData:rData];
+  [result appendBytes:"\x00\x00\x00\x21\x00" length:5];
+  [result appendData:sData];
+
+  [self logHex:@"result:" data:result.bytes len:result.length];
+  return result;
 }
 
 - (void)testPublicKeyAuthenticationWithSignCallbackWorks {
@@ -524,9 +517,13 @@
 - (void)testP256ECDSAPublicKeyAuthentication {
     NSString *host = [validPublicKeyProtectedServer objectForKey:@"host"];
     NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
-    NSString *publicKey = [validPublicKeyProtectedServer objectForKey:@"p256_key"];
+    NSString *publicKey = [validPublicKeyProtectedServer objectForKey:@"p256_public"];
+    NSString *privateKey = [validPublicKeyProtectedServer objectForKey:@"p256_key"];
 
     session = [NMSSHSession connectToHost:host withUsername:username];
+
+    NSLog(@"turn on trace logging");
+    libssh2_trace([session rawSession], ~0);
 
     XCTAssertNoThrow([session authenticateByPublicKey:publicKey
                                           privateKey:[publicKey stringByDeletingPathExtension]
@@ -540,8 +537,8 @@
     NSString *host = [validPasswordProtectedServer objectForKey:@"host"];
     NSString *username = [validPasswordProtectedServer objectForKey:@"user"];
     
-    NSString *privateKeyPath = @"/Users/jlake/sandbox/NMSSH/tests/ssh-keys/id_ecdsa_p256.pem";
-    NSString *publicKeyPath = @"/Users/jlake/sandbox/NMSSH/tests/ssh-keys/id_ecdsa_p256.pub";
+    NSString *privateKeyPath = [validPublicKeyProtectedServer objectForKey:@"p256_key_pem"];
+    NSString *publicKeyPath = [validPublicKeyProtectedServer objectForKey:@"p256_public"];
     
     NSData *scalar = [self extractScalarFromPKCS8:privateKeyPath];
     XCTAssertNotNil(scalar, @"Should extract scalar from P256 private key");
@@ -560,30 +557,19 @@
     NSString *publicKeyLine = [NSString stringWithContentsOfFile:publicKeyPath encoding:NSUTF8StringEncoding error:nil];
     NSArray *parts = [[publicKeyLine stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] componentsSeparatedByString:@" "];
     NSData *publicKeyData = [[NSData alloc] initWithBase64EncodedString:parts[1] options:0];
+    [self logHex:@"publicKeyData" data:publicKeyData.bytes len:publicKeyData.length];
+    NSData *pubPub = [publicKeyData subdataWithRange:NSMakeRange(39,65)];
+    [self logHex:@"pubPub" data:pubPub.bytes len:pubPub.length];
     XCTAssertNotNil(publicKeyData, @"Should decode P256 public key");
     if (!publicKeyData) return;
 
-    // First test file-based auth to capture reference packet
-    NSLog(@"=== FILE-BASED AUTH PACKET ===");
-    session = [NMSSHSession connectToHost:host withUsername:username];
-    XCTAssertTrue([session isConnected], @"Should connect to test server");
-    BOOL fileAuth = [session authenticateByPublicKey:publicKeyPath privateKey:privateKeyPath andPassword:nil];
-    [session disconnect];
-    
-    // Now test callback auth to capture comparison packet  
-    NSLog(@"=== CALLBACK AUTH PACKET ===");
-    session = [NMSSHSession connectToHost:host withUsername:username];
+    NMSSHSession *session = [NMSSHSession connectToHost:host withUsername:username];
     XCTAssertTrue([session isConnected], @"Should connect to test server");
     if (![session isConnected]) return;
     
     // Create P256 signing callback using SecKey
     int(^signCallback)(NSData *, NSData **) = ^int(NSData *data, NSData **signature) {
-        const unsigned char *bytes = (const unsigned char *)data.bytes;
-        NSMutableString *hex = [NSMutableString string];
-        for (NSUInteger i = 0; i < data.length; i++) {
-            [hex appendFormat:@"%02x", bytes[i]];
-        }
-        NSLog(@"CHALLENGE: %@", hex);
+        [self logHex:@"challenge:" data: data.bytes len: data.length];
         
         @try {
             CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(NULL, 0,
@@ -599,6 +585,10 @@
                 if (error) CFRelease(error);
                 return -1;
             }
+
+            SecKeyRef secPubKey = SecKeyCopyPublicKey(privateKey);
+            NSData *exportedPub = (__bridge_transfer NSData*)SecKeyCopyExternalRepresentation(secPubKey, &error);
+            [self logHex:@"exportedPub" data:exportedPub.bytes len:exportedPub.length];
             
             // Sign the raw data (let SecKey do the hashing with SHA256)
             CFDataRef signatureData = SecKeyCreateSignature(privateKey, 
@@ -613,33 +603,34 @@
             }
             
             NSData *asn1Signature = (__bridge NSData *)signatureData;
+            [self logHex:@"asn1:" data: asn1Signature.bytes len: asn1Signature.length];
             NSData *sshSignature = [self convertASN1SignatureToSSH:asn1Signature];
+            [self logHex:@"sshSignature:" data: sshSignature.bytes len: sshSignature.length];
             CFRelease(signatureData);
             
             if (!sshSignature) {
                 return -1;
             }
             
-            const unsigned char *sigBytes = (const unsigned char *)sshSignature.bytes;
-            NSMutableString *sigHex = [NSMutableString string];
-            for (NSUInteger i = 0; i < sshSignature.length; i++) {
-                [sigHex appendFormat:@"%02x", sigBytes[i]];
-            }
-            NSLog(@"SSH_SIG: %@", sigHex);
             *signature = [sshSignature copy];
+            NSLog(@"signature callback success");
             return 0;
             
         } @catch (NSException *exception) {
             return -1;
         }
     };
+
+    NSLog(@"turn on trace logging");
+    libssh2_trace([session rawSession], ~0);
     
-    BOOL callbackAuth = [session authenticateByInMemoryPublicKey:publicKeyData signCallback:signCallback];
+    int auth_error = [session authenticateByInMemoryPublicKey:publicKeyData signCallback:signCallback];
+    NSLog(@"auth_error: %d", auth_error);
+    XCTAssertTrue(auth_error == 0, @"Callback auth should work");
     
-    XCTAssertTrue(fileAuth, @"File-based auth should work");
-    XCTAssertTrue(callbackAuth, @"Callback auth should work");
-    
-    if (!callbackAuth) return;
+    if (![session isAuthorized]) {
+      return;
+    }
 
     NMSSHChannel *channel = [[NMSSHChannel alloc] initWithSession:session];
 
@@ -674,6 +665,14 @@
                     @"Ed25519 authentication should not throw");
 
     XCTAssertTrue([session isAuthorized], @"Ed25519 authentication should work");
+}
+
+- (void)logHex:(NSString *)prefix data:(unsigned char *)pdata len:(NSUInteger)len {
+  NSMutableString *s = [NSMutableString string];
+  for (NSUInteger i = 0; i < len; i++) {
+      [s appendFormat:@"%02x", pdata[i]];
+  }
+  NSLog(@"%@(%u): %@", prefix, len, s);
 }
 
 @end
