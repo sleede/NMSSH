@@ -2,6 +2,7 @@
 #import "NMSSHConfig.h"
 #import "NMSSHHostConfig.h"
 #import "ConfigHelper.h"
+#import "NMSSHTests-Swift.h"
 
 #import <NMSSH/NMSSH.h>
 #import <CommonCrypto/CommonCrypto.h>
@@ -457,6 +458,14 @@ NSData* extractScalarFromPKCS8(NSString* path) {
     NSArray *parts = [line componentsSeparatedByString:@" "];
     NSData *blob = [[NSData alloc] initWithBase64EncodedString:parts[1] options:0];
 
+    // Check if this is an Ed25519 key
+    if ([parts[0] isEqualToString:@"ssh-ed25519"]) {
+        // Ed25519 SSH public key format: [4 bytes length][algorithm][4 bytes length][32 bytes public key]
+        // Just return the entire blob for Ed25519 - the SSH library expects the full SSH wire format
+        return blob;
+    }
+    
+    // Original ECDSA parsing for P256 keys
     const uint8_t *p = (const uint8_t*)blob.bytes; size_t len = blob.length;
     uint32_t l1 = ntohl(*(uint32_t*)p); p+=4; len-=4; p+=l1; len-=l1;
     uint32_t l2 = ntohl(*(uint32_t*)p); p+=4; len-=4; p+=l2; len-=l2;
@@ -778,6 +787,213 @@ NSData* extractScalarFromPKCS8(NSString* path) {
                     @"Ed25519 authentication should not throw");
 
     XCTAssertTrue([session isAuthorized], @"Ed25519 authentication should work");
+}
+
+- (NSData*)extractEd25519PrivateKey:(NSString*)keyPath {
+    NSString* keyContent = [NSString stringWithContentsOfFile:keyPath encoding:NSUTF8StringEncoding error:nil];
+    if (!keyContent) return nil;
+    
+    NSString* base64 = [keyContent stringByReplacingOccurrencesOfString:@"-----BEGIN OPENSSH PRIVATE KEY-----" withString:@""];
+    base64 = [base64 stringByReplacingOccurrencesOfString:@"-----END OPENSSH PRIVATE KEY-----" withString:@""];
+    base64 = [base64 stringByReplacingOccurrencesOfString:@"\n" withString:@""];
+    base64 = [base64 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    
+    NSData* keyData = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+    if (!keyData) return nil;
+    
+    // Parse OpenSSH private key format
+    const uint8_t* bytes = (const uint8_t*)keyData.bytes;
+    NSUInteger pos = 0;
+    
+    // Skip magic "openssh-key-v1\0"
+    pos += 15;
+    
+    // Skip ciphername
+    uint32_t ciphername_len = OSSwapBigToHostInt32(*(uint32_t*)(bytes + pos));
+    pos += 4 + ciphername_len;
+    
+    // Skip kdfname
+    uint32_t kdfname_len = OSSwapBigToHostInt32(*(uint32_t*)(bytes + pos));
+    pos += 4 + kdfname_len;
+    
+    // Skip kdf
+    uint32_t kdf_len = OSSwapBigToHostInt32(*(uint32_t*)(bytes + pos));
+    pos += 4 + kdf_len;
+    
+    // Skip number of keys
+    pos += 4;
+    
+    // Skip public key section
+    uint32_t pubkey_section_len = OSSwapBigToHostInt32(*(uint32_t*)(bytes + pos));
+    pos += 4 + pubkey_section_len;
+    
+    // Private key section
+    uint32_t privkey_section_len = OSSwapBigToHostInt32(*(uint32_t*)(bytes + pos));
+    pos += 4;
+    
+    if (pos + privkey_section_len > keyData.length) return nil;
+    
+    // Parse private key section
+    NSUInteger priv_pos = pos;
+    
+    // Skip check integers
+    priv_pos += 8;
+    
+    // Skip key type
+    uint32_t keytype_len = OSSwapBigToHostInt32(*(uint32_t*)(bytes + priv_pos));
+    priv_pos += 4 + keytype_len;
+    
+    // Skip public key in private section
+    uint32_t pubkey_len = OSSwapBigToHostInt32(*(uint32_t*)(bytes + priv_pos));
+    priv_pos += 4 + pubkey_len;
+    
+    // Get private key
+    uint32_t privkey_len = OSSwapBigToHostInt32(*(uint32_t*)(bytes + priv_pos));
+    priv_pos += 4;
+    
+    if (privkey_len != 64) return nil; // Ed25519 private key should be 64 bytes
+    
+    // Extract the 32-byte seed (first 32 bytes of the 64-byte private key)
+    NSData* seed = [NSData dataWithBytes:(bytes + priv_pos) length:32];
+    return seed;
+}
+
+- (void)testEd25519SignCallback {
+    NSString *host = [validPasswordProtectedServer objectForKey:@"host"];
+    NSString *username = [validPasswordProtectedServer objectForKey:@"user"];
+    
+    NSString *privateKeyPath = [validPublicKeyProtectedServer objectForKey:@"ed25519_private"];
+    NSString *publicKeyPath = [validPublicKeyProtectedServer objectForKey:@"ed25519_key"];
+    
+    NSData *privateKeyData = [self extractEd25519PrivateKey:privateKeyPath];
+    XCTAssertNotNil(privateKeyData, @"Should extract Ed25519 private key");
+    if (!privateKeyData) return;
+    
+    NSLog(@"=== Ed25519 Key Verification ===");
+    NSLog(@"Private key path: %@", privateKeyPath);
+    NSLog(@"Public key path: %@", publicKeyPath);
+    [self logHex:@"Extracted private key" data:(unsigned char*)privateKeyData.bytes len:privateKeyData.length];
+    
+    // Create CryptoKit private key from extracted data
+    id cryptoKitPrivateKey = [Ed25519Bridge createPrivateKeyFrom:privateKeyData];
+    XCTAssertNotNil(cryptoKitPrivateKey, @"Should create CryptoKit private key");
+    if (!cryptoKitPrivateKey) return;
+    NSLog(@"✓ Created CryptoKit private key");
+    
+    // Get public key from CryptoKit private key
+    NSData* derivedPublicKey = [Ed25519Bridge getPublicKeyFrom:cryptoKitPrivateKey];
+    XCTAssertNotNil(derivedPublicKey, @"Should derive public key from CryptoKit private key");
+    if (!derivedPublicKey) return;
+    [self logHex:@"Derived public key" data:(unsigned char*)derivedPublicKey.bytes len:derivedPublicKey.length];
+    
+    // Extract public key from SSH public key file
+    NSString* pubContent = [NSString stringWithContentsOfFile:publicKeyPath encoding:NSUTF8StringEncoding error:nil];
+    NSArray* parts = [pubContent componentsSeparatedByString:@" "];
+    NSData* sshPublicKeyData = [[NSData alloc] initWithBase64EncodedString:parts[1] options:0];
+    NSData* extractedPublicKey = [sshPublicKeyData subdataWithRange:NSMakeRange(19, 32)];
+    [self logHex:@"SSH file public key" data:(unsigned char*)extractedPublicKey.bytes len:extractedPublicKey.length];
+    
+    // Verify public keys match
+    if ([extractedPublicKey isEqualToData:derivedPublicKey]) {
+        NSLog(@"✅ Public keys match!");
+    } else {
+        NSLog(@"❌ Public keys don't match!");
+        XCTFail(@"Public keys should match");
+        return;
+    }
+    
+    // Test signing with a known message
+    NSString* testMessage = @"Hello, Ed25519!";
+    NSData* messageData = [testMessage dataUsingEncoding:NSUTF8StringEncoding];
+    NSLog(@"Test message: %@", testMessage);
+    [self logHex:@"Message bytes" data:(unsigned char*)messageData.bytes len:messageData.length];
+    
+    NSData* signature = [Ed25519Bridge signWithData:messageData with:cryptoKitPrivateKey];
+    XCTAssertNotNil(signature, @"Should create signature");
+    if (!signature) return;
+    [self logHex:@"Ed25519 signature" data:(unsigned char*)signature.bytes len:signature.length];
+    
+    NSLog(@"=== Verification Data for External Tools ===");
+    NSLog(@"Private key (hex): %@", [self dataToHex:privateKeyData]);
+    NSLog(@"Public key (hex): %@", [self dataToHex:derivedPublicKey]);
+    NSLog(@"Message (hex): %@", [self dataToHex:messageData]);
+    NSLog(@"Signature (hex): %@", [self dataToHex:signature]);
+    
+    // Now test the actual SSH authentication
+    NSData *publicKeyData = [self parseOpenSSHPub:publicKeyPath];
+    XCTAssertNotNil(publicKeyData, @"Should parse Ed25519 public key");
+    if (!publicKeyData) return;
+    
+    NSLog(@"=== SSH Authentication ===");
+    [self logHex:@"SSH public key data" data:(unsigned char*)publicKeyData.bytes len:publicKeyData.length];
+    NSLog(@"SSH public key data (hex): %@", [self dataToHex:publicKeyData]);
+
+    NMSSHSession *session = [NMSSHSession connectToHost:host withUsername:username];
+    XCTAssertTrue([session isConnected], @"Should connect to test server");
+    if (![session isConnected]) return;
+    
+    // Create Ed25519 signing callback using CryptoKit
+    int(^signCallback)(NSData *, NSData **) = ^int(NSData *data, NSData **signature) {
+        NSLog(@"=== SSH Signing Callback ===");
+        [self logHex:@"SSH challenge data" data:(unsigned char*)data.bytes len:data.length];
+        
+        @try {
+            // Create CryptoKit private key from extracted data
+            id cryptoKitPrivateKey = [Ed25519Bridge createPrivateKeyFrom:privateKeyData];
+            if (!cryptoKitPrivateKey) return -1;
+            
+            // Sign the data
+            NSData* sig = [Ed25519Bridge signWithData:data with:cryptoKitPrivateKey];
+            if (!sig) return -1;
+            
+            [self logHex:@"SSH signature" data:(unsigned char*)sig.bytes len:sig.length];
+            NSLog(@"SSH challenge (hex): %@", [self dataToHex:data]);
+            NSLog(@"SSH signature (hex): %@", [self dataToHex:sig]);
+            
+            *signature = [sig copy];
+            return 0;
+            
+        } @catch (NSException *exception) {
+            NSLog(@"Exception in signing callback: %@", exception);
+            return -1;
+        }
+    };
+
+    libssh2_trace([session rawSession], ~0);
+    
+    int auth_error = [session authenticateByInMemoryPublicKey:publicKeyData signCallback:signCallback];
+    NSLog(@"SSH auth result: %d", auth_error);
+    XCTAssertTrue(auth_error == 0, @"Ed25519 callback auth should work");
+    
+    if (![session isAuthorized]) {
+        [session disconnect];
+        return;
+    }
+
+    NMSSHChannel *channel = [[NMSSHChannel alloc] initWithSession:session];
+
+    NSError *error = nil;
+    XCTAssertNoThrow([channel execute:[validPasswordProtectedServer objectForKey:@"execute_command"]
+                               error:&error],
+                    @"Ed25519 SignCallback: Execution should not throw an exception");
+
+    XCTAssertTrue(error == nil, @"Ed25519 SignCallback: Exec after sign should work");
+
+    NSLog(@"Ed25519 SignCallback: %@", [channel lastResponse]);
+
+    XCTAssertEqualObjects([channel lastResponse],
+                         [validPasswordProtectedServer objectForKey:@"execute_expected_response"],
+                         @"Ed25519 SignCallback: Execution returns the expected response");
+    [session disconnect];
+}
+
+- (NSString*)dataToHex:(NSData*)data {
+    const unsigned char *bytes = (const unsigned char *)[data bytes];
+    NSMutableString *hex = [NSMutableString stringWithCapacity:[data length] * 2];
+    for (NSUInteger i = 0; i < [data length]; i++) {
+        [hex appendFormat:@"%02x", bytes[i]];
+    }
+    return hex;
 }
 
 - (void)logHex:(NSString *)prefix data:(unsigned char *)pdata len:(NSUInteger)len {
