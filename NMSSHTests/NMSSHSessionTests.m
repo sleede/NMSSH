@@ -326,6 +326,110 @@
     return [[NSData alloc] initWithBase64EncodedString:base64String options:0];
 }
 
+- (NSData *)extractScalarFromPKCS8:(NSString *)path {
+    NSString *pem = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    pem = [pem stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"];
+    pem = [pem stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
+    pem = [pem stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+    NSRange start = [pem rangeOfString:@"-----BEGIN PRIVATE KEY-----"];
+    NSRange end   = [pem rangeOfString:@"-----END PRIVATE KEY-----"];
+    NSString *b64str = [pem substringWithRange:NSMakeRange(NSMaxRange(start), end.location - NSMaxRange(start))];
+    b64str = [[b64str componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] componentsJoinedByString:@""];
+    NSData *der = [[NSData alloc] initWithBase64EncodedString:b64str options:0];
+
+    return [der subdataWithRange:NSMakeRange(der.length-32,32)];
+}
+
+- (NSData *)parseOpenSSHPub:(NSString *)path {
+    NSString *line = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    line = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSArray *parts = [line componentsSeparatedByString:@" "];
+    NSData *blob = [[NSData alloc] initWithBase64EncodedString:parts[1] options:0];
+
+    const uint8_t *p = (const uint8_t*)blob.bytes; size_t len = blob.length;
+    uint32_t l1 = ntohl(*(uint32_t*)p); p+=4; len-=4; p+=l1; len-=l1;
+    uint32_t l2 = ntohl(*(uint32_t*)p); p+=4; len-=4; p+=l2; len-=l2;
+    uint32_t qlen = ntohl(*(uint32_t*)p); p+=4; len-=4;
+    return [NSData dataWithBytes:p length:qlen];
+}
+
+- (NSData *)convertASN1SignatureToSSH:(NSData *)asn1Signature {
+    const uint8_t *bytes = (const uint8_t *)asn1Signature.bytes;
+    NSUInteger length = asn1Signature.length;
+    NSUInteger pos = 0;
+    
+    if (pos >= length || bytes[pos] != 0x30) return nil;
+    pos++;
+    
+    if (pos >= length) return nil;
+    if (bytes[pos] & 0x80) {
+        NSUInteger lenBytes = bytes[pos] & 0x7F;
+        pos += 1 + lenBytes;
+    } else {
+        pos++;
+    }
+    
+    if (pos >= length || bytes[pos] != 0x02) return nil;
+    pos++;
+    
+    NSUInteger rLen = bytes[pos++];
+    if (rLen & 0x80) {
+        NSUInteger lenBytes = rLen & 0x7F;
+        rLen = 0;
+        for (NSUInteger i = 0; i < lenBytes; i++) {
+            rLen = (rLen << 8) | bytes[pos++];
+        }
+    }
+    
+    NSData *rData = [NSData dataWithBytes:&bytes[pos] length:rLen];
+    pos += rLen;
+    
+    if (pos >= length || bytes[pos] != 0x02) return nil;
+    pos++;
+    
+    NSUInteger sLen = bytes[pos++];
+    if (sLen & 0x80) {
+        NSUInteger lenBytes = sLen & 0x7F;
+        sLen = 0;
+        for (NSUInteger i = 0; i < lenBytes; i++) {
+            sLen = (sLen << 8) | bytes[pos++];
+        }
+    }
+    
+    NSData *sData = [NSData dataWithBytes:&bytes[pos] length:sLen];
+    
+    NSMutableData *result = [NSMutableData data];
+    
+    // r: check if high bit set and add leading zero if needed
+    const uint8_t *rBytes = (const uint8_t *)rData.bytes;
+    if (rData.length == 32 && (rBytes[0] & 0x80)) {
+        uint32_t r_len = htonl(33);
+        [result appendBytes:&r_len length:4];
+        [result appendBytes:"\x00" length:1];
+        [result appendData:rData];
+    } else {
+        uint32_t r_len = htonl((uint32_t)rData.length);
+        [result appendBytes:&r_len length:4];
+        [result appendData:rData];
+    }
+    
+    // s: check if high bit set and add leading zero if needed
+    const uint8_t *sBytes = (const uint8_t *)sData.bytes;
+    if (sData.length == 32 && (sBytes[0] & 0x80)) {
+        uint32_t s_len = htonl(33);
+        [result appendBytes:&s_len length:4];
+        [result appendBytes:"\x00" length:1];
+        [result appendData:sData];
+    } else {
+        uint32_t s_len = htonl((uint32_t)sData.length);
+        [result appendBytes:&s_len length:4];
+        [result appendData:sData];
+    }
+    
+    return result;
+}
+
 - (void)testPublicKeyAuthenticationWithSignCallbackWorks {
     NSString *host = [validPublicKeyProtectedServer objectForKey:@"host"];
     NSString *username = [validPublicKeyProtectedServer objectForKey:@"user"];
@@ -430,6 +534,127 @@
                     @"P256 ECDSA authentication should not throw");
 
     XCTAssertTrue([session isAuthorized], @"P256 ECDSA authentication should work");
+}
+
+- (void)testP256ECDSASignCallback {
+    NSString *host = [validPasswordProtectedServer objectForKey:@"host"];
+    NSString *username = [validPasswordProtectedServer objectForKey:@"user"];
+    
+    NSString *privateKeyPath = @"/Users/jlake/sandbox/NMSSH/tests/ssh-keys/id_ecdsa_p256.pem";
+    NSString *publicKeyPath = @"/Users/jlake/sandbox/NMSSH/tests/ssh-keys/id_ecdsa_p256.pub";
+    
+    NSData *scalar = [self extractScalarFromPKCS8:privateKeyPath];
+    XCTAssertNotNil(scalar, @"Should extract scalar from P256 private key");
+    if (!scalar) return;
+    
+    NSData *Q = [self parseOpenSSHPub:publicKeyPath];
+    XCTAssertNotNil(Q, @"Should parse Q from P256 public key");
+    if (!Q) return;
+    
+    // Build 97-byte private key blob: [Q || scalar]
+    NSMutableData *privBlob = [NSMutableData dataWithLength:97];
+    memcpy(privBlob.mutableBytes, Q.bytes, 65);
+    memcpy(privBlob.mutableBytes+65, scalar.bytes, 32);
+    
+    // Extract public key data for SSH authentication
+    NSString *publicKeyLine = [NSString stringWithContentsOfFile:publicKeyPath encoding:NSUTF8StringEncoding error:nil];
+    NSArray *parts = [[publicKeyLine stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] componentsSeparatedByString:@" "];
+    NSData *publicKeyData = [[NSData alloc] initWithBase64EncodedString:parts[1] options:0];
+    XCTAssertNotNil(publicKeyData, @"Should decode P256 public key");
+    if (!publicKeyData) return;
+
+    // First test file-based auth to capture reference packet
+    NSLog(@"=== FILE-BASED AUTH PACKET ===");
+    session = [NMSSHSession connectToHost:host withUsername:username];
+    XCTAssertTrue([session isConnected], @"Should connect to test server");
+    BOOL fileAuth = [session authenticateByPublicKey:publicKeyPath privateKey:privateKeyPath andPassword:nil];
+    [session disconnect];
+    
+    // Now test callback auth to capture comparison packet  
+    NSLog(@"=== CALLBACK AUTH PACKET ===");
+    session = [NMSSHSession connectToHost:host withUsername:username];
+    XCTAssertTrue([session isConnected], @"Should connect to test server");
+    if (![session isConnected]) return;
+    
+    // Create P256 signing callback using SecKey
+    int(^signCallback)(NSData *, NSData **) = ^int(NSData *data, NSData **signature) {
+        const unsigned char *bytes = (const unsigned char *)data.bytes;
+        NSMutableString *hex = [NSMutableString string];
+        for (NSUInteger i = 0; i < data.length; i++) {
+            [hex appendFormat:@"%02x", bytes[i]];
+        }
+        NSLog(@"CHALLENGE: %@", hex);
+        
+        @try {
+            CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(NULL, 0,
+                &kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+            CFDictionarySetValue(attrs, kSecAttrKeyType, kSecAttrKeyTypeECSECPrimeRandom);
+            CFDictionarySetValue(attrs, kSecAttrKeyClass, kSecAttrKeyClassPrivate);
+            CFDictionarySetValue(attrs, kSecAttrKeySizeInBits, (__bridge CFNumberRef)@(256));
+            
+            CFErrorRef error = NULL;
+            SecKeyRef privateKey = SecKeyCreateWithData((__bridge CFDataRef)privBlob, attrs, &error);
+            CFRelease(attrs);
+            if (!privateKey) {
+                if (error) CFRelease(error);
+                return -1;
+            }
+            
+            // Sign the raw data (let SecKey do the hashing with SHA256)
+            CFDataRef signatureData = SecKeyCreateSignature(privateKey, 
+                                                           kSecKeyAlgorithmECDSASignatureMessageX962SHA256,
+                                                           (__bridge CFDataRef)data, 
+                                                           &error);
+            CFRelease(privateKey);
+            
+            if (!signatureData) {
+                if (error) CFRelease(error);
+                return -1;
+            }
+            
+            NSData *asn1Signature = (__bridge NSData *)signatureData;
+            NSData *sshSignature = [self convertASN1SignatureToSSH:asn1Signature];
+            CFRelease(signatureData);
+            
+            if (!sshSignature) {
+                return -1;
+            }
+            
+            const unsigned char *sigBytes = (const unsigned char *)sshSignature.bytes;
+            NSMutableString *sigHex = [NSMutableString string];
+            for (NSUInteger i = 0; i < sshSignature.length; i++) {
+                [sigHex appendFormat:@"%02x", sigBytes[i]];
+            }
+            NSLog(@"SSH_SIG: %@", sigHex);
+            *signature = [sshSignature copy];
+            return 0;
+            
+        } @catch (NSException *exception) {
+            return -1;
+        }
+    };
+    
+    BOOL callbackAuth = [session authenticateByInMemoryPublicKey:publicKeyData signCallback:signCallback];
+    
+    XCTAssertTrue(fileAuth, @"File-based auth should work");
+    XCTAssertTrue(callbackAuth, @"Callback auth should work");
+    
+    if (!callbackAuth) return;
+
+    NMSSHChannel *channel = [[NMSSHChannel alloc] initWithSession:session];
+
+    NSError *error = nil;
+    XCTAssertNoThrow([channel execute:[validPasswordProtectedServer objectForKey:@"execute_command"]
+                               error:&error],
+                    @"P256 SignCallback: Execution should not throw an exception");
+
+    XCTAssertTrue(error == nil, @"P256 SignCallback: Exec after sign should work");
+
+    NSLog(@"P256 SignCallback: %@", [channel lastResponse]);
+
+    XCTAssertEqualObjects([channel lastResponse],
+                         [validPasswordProtectedServer objectForKey:@"execute_expected_response"],
+                         @"P256 SignCallback: Execution returns the expected response");
 }
 
 // -----------------------------------------------------------------------------
