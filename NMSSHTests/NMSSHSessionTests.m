@@ -604,6 +604,7 @@ NSData* extractScalarFromPKCS8(NSString* path) {
     NSArray *parts = [publicKeyString componentsSeparatedByString:@" "];
     XCTAssertTrue(parts.count >= 2, @"Public key should have at least 2 parts");
     NSString *base64Key = parts[1];
+    NSLog(@"base64Key: %@", base64Key);
     NSData *publicKeyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
     XCTAssertNotNil(publicKeyData, @"Should be able to decode base64 public key");
     
@@ -653,13 +654,18 @@ NSData* extractScalarFromPKCS8(NSString* path) {
             return -1;
         }
     };
-    
+    [self logHex:@"publicKeyData" data:publicKeyData.bytes len:publicKeyData.length];
     XCTAssertNoThrow([session authenticateByInMemoryPublicKey:publicKeyData
                                                  signCallback:signCallback],
                     @"Authentication with sign callback should not throw");
     
     BOOL isAuthorized = [session isAuthorized];
     XCTAssertTrue(isAuthorized, @"Authentication with real RSA signature should work");
+
+    if (!isAuthorized) {
+      [session disconnect];
+      return;
+    }
 
     NMSSHChannel *channel = [[NMSSHChannel alloc] initWithSession:session];
 
