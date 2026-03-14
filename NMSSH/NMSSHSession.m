@@ -335,7 +335,7 @@ static void nmssh_trace_callback(LIBSSH2_SESSION *session,
 
     // Set algorithm preferences for compatibility
     libssh2_session_method_pref(self.session, LIBSSH2_METHOD_KEX, "diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha1");
-    libssh2_session_method_pref(self.session, LIBSSH2_METHOD_HOSTKEY, "rsa-sha2-512,rsa-sha2-256,ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521");
+    libssh2_session_method_pref(self.session, LIBSSH2_METHOD_HOSTKEY, "ssh-ed25519,rsa-sha2-512,rsa-sha2-256,ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521");
     libssh2_session_method_pref(self.session, LIBSSH2_METHOD_CRYPT_CS, "aes128-ctr,aes192-ctr,aes256-ctr,aes128-cbc,aes192-cbc,aes256-cbc");
     libssh2_session_method_pref(self.session, LIBSSH2_METHOD_CRYPT_SC, "aes128-ctr,aes192-ctr,aes256-ctr,aes128-cbc,aes192-cbc,aes256-cbc");
     libssh2_session_method_pref(self.session, LIBSSH2_METHOD_MAC_CS, "hmac-sha2-256,hmac-sha2-512,hmac-sha1");
